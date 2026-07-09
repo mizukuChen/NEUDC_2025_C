@@ -1,10 +1,10 @@
-# Architecture
+# 工程架构
 
-The project is organized around the contest device:
+本工程按竞赛测量装置的功能拆分：
 
-1. `src/vision` captures one image, finds the A4 target plane, estimates pose, and measures the black geometry on the rectified paper plane.
-2. `src/hardware` owns Raspberry Pi GPIO, key input, current sensing, and power calculation.
-3. `src/display` owns the result presentation layer.
-4. `src/main.py` will connect the one-key measurement workflow.
+1. `src/vision` 负责图像采集后的视觉处理，包括寻找 A4 目标物平面、估计目标物姿态、透视矫正，以及在矫正后的纸面上测量黑色几何图形尺寸。
+2. `src/hardware` 负责树莓派硬件接口，包括 GPIO、按键输入、电流采样和功耗计算。
+3. `src/display` 负责结果显示，把距离 `D`、尺寸 `x`、电流 `Is`、功耗 `P` 等信息输出到屏幕。
+4. `src/main.py` 作为主入口，后续用于串联“一键启动、采集图像、计算结果、显示结果”的完整流程。
 
-Generated target sheets are kept under `assets/targets/generated` so they can be printed for local debugging without mixing them with runtime captures.
+生成的调试靶标统一放在 `assets/targets/generated` 下，便于打印测试；树莓派实际运行时保存的照片、标定文件和日志放在 `runtime` 下，避免和源码、测试资料混在一起。

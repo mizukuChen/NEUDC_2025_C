@@ -1,7 +1,8 @@
-# Measurement Notes
+# 测量思路
 
-- The A4 target is a known rectangle: 210 mm by 297 mm.
-- The black border gives robust plane corners for perspective correction.
-- The bottom-center marker defines the target point used by the problem statement for distance `D`.
-- After camera calibration, `solvePnP` can estimate the target plane pose from the four A4 corners.
-- Shape size `x` should be measured on the rectified A4 plane, where pixel-to-mm scale is fixed by the target paper dimensions.
+- 目标物平面是一张竖立的 A4 纸，实际尺寸固定为 `210 mm x 297 mm`。
+- A4 纸四周有黑色边框，可以作为稳定的平面边界，用于寻找纸面四角并进行透视矫正。
+- 底边中点处的标记点对应题目中定义距离 `D` 的目标点，即标记点在基准面上的垂直投影点到基准线的距离。
+- 完成相机标定后，可以用 A4 四角的图像坐标和实际三维坐标，通过 `solvePnP` 估计目标物平面相对摄像头的姿态。
+- 图形尺寸 `x` 建议在矫正后的 A4 纸面图像上测量。矫正后纸面像素和实际毫米尺寸之间存在固定比例，便于把像素长度换算成实际长度。
+- 基本题主要识别圆形、等边三角形和正方形；发挥题需要进一步处理多个正方形、重叠正方形、带编号正方形和斜放目标物。
