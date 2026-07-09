@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+
+runtime/captures/*
+!runtime/captures/.gitkeep
+runtime/calibration/*
+!runtime/calibration/.gitkeep
+runtime/logs/*
+!runtime/logs/.gitkeep
+
+.venv/
+venv/
+*.log
