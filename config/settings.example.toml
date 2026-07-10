@@ -21,3 +21,8 @@ advanced_size_error_cm = 0.5
 capture_dir = "runtime/captures"
 calibration_dir = "runtime/calibration"
 log_dir = "runtime/logs"
+
+[rpi_mount]
+windows_path = "\\\\wsl.localhost\\Ubuntu\\home\\mizuku\\nailong"
+remote_capture_dir = "runtime/captures/rpi"
+local_capture_dir = "runtime/captures/rpi"
