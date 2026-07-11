@@ -1,48 +1,223 @@
 # 2025 电赛 C 题：基于单目视觉的目标物测量装置
 
-本工程用于在树莓派上实现 2025 年全国大学生电子设计竞赛 C 题“基于单目视觉的目标物测量装置”。
+本仓库用于实现 2025 年全国大学生电子设计竞赛 C 题。当前已完成 USB 摄像头采集、树莓派网页/HDMI 预览、A4 黑框定位、平面透视矫正，以及圆形、正方形、等边三角形的基础尺寸测量原型。
 
-目标功能包括：
+当前主开发目录为 WSL：
 
-- 使用单个摄像头测量目标物距离 `D`。
-- 测量目标物平面上几何图形的边长或直径 `x`。
-- 支持基本题的圆形、等边三角形、正方形识别。
-- 后续扩展发挥题的多个正方形、重叠正方形、带编号正方形和斜放目标物测量。
-- 接入按键、显示屏、电流采样和功耗计算。
-
-## 目录结构
-
-- `src/`：树莓派端运行代码。
-- `src/vision/`：图像处理、相机标定、姿态估计和目标尺寸测量模块。
-- `src/hardware/`：GPIO 按键、电流采样和功耗测量相关代码。
-- `src/display/`：屏幕显示适配代码。
-- `config/`：运行配置示例。
-- `scripts/targets/`：A4/A3 调试靶标生成脚本。
-- `assets/targets/generated/`：已生成的 PDF/PNG 调试靶标。
-- `docs/problem/`：竞赛原题 PDF。
-- `docs/design/`：工程设计说明和测量思路笔记。
-- `runtime/`：树莓派运行时产生的照片、标定文件和日志。
-- `tests/`：单元测试和图像处理回归测试。
-
-## 开发机使用
-
-建议在开发机上使用独立 conda 环境，避免污染默认 Python 环境：
-
-```powershell
-conda create -n opencv-nuedc python=3.12 -y
-conda activate opencv-nuedc
-uv pip install -r requirements-dev.txt
+```bash
+~/NUEDC_2025_C
 ```
 
-也可以不用激活环境，直接指定环境里的 Python：
+树莓派通过 SSHFS 挂载到 WSL 的：
 
-```powershell
-uv pip install --python D:\work_office\resource\anaconda\envs\opencv-nuedc\python.exe -r requirements-dev.txt
+```bash
+~/nailong
 ```
 
-安装依赖后，可以重新生成测试靶标：
+它对应树莓派的 `/home/nailong`。该目录中的 `pi_cv` 是树莓派环境，不能在 WSL 中激活或重建。
 
-```powershell
+## 目录说明
+
+- `src/`：树莓派采集、预览和视觉算法。
+- `src/vision/`：A4 黑框定位、透视矫正、基础图形测量。
+- `scripts/`：离线测量、批量评估、数据导入、靶纸生成脚本。
+- `config/`：配置示例。
+- `assets/`：生成的靶纸和标定图案。
+- `docs/`：题目、设计说明和交接记录。
+- `runtime/`：运行时照片、调试图、标定文件。该目录多数内容被 Git 忽略。
+- `tests/`：回归测试。
+
+## WSL 开发环境
+
+首次进入 WSL 工程目录后：
+
+```bash
+cd ~/NUEDC_2025_C
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+```
+
+当前迁移目录中的 `.venv` 已安装 Python 3.12 和 OpenCV；日常使用只需：
+
+```bash
+cd ~/NUEDC_2025_C
+source .venv/bin/activate
+```
+
+确认环境：
+
+```bash
+python --version
+python -c "import cv2; print(cv2.__version__)"
+```
+
+## 树莓派环境与部署
+
+树莓派当前地址为 `192.168.112.67`，用户名为 `nailong`，USB 摄像头使用 `/dev/video0`。
+
+进入树莓派终端：
+
+```bash
+ssh nailong@192.168.112.67
+source ~/pi_cv/bin/activate
+cd ~
+```
+
+树莓派端脚本放在家目录 `~`，即：
+
+```text
+~/camera_preview.py
+~/capture.py
+```
+
+修改采集脚本后，在 WSL 同步到树莓派：
+
+```bash
+cp ~/NUEDC_2025_C/src/camera_preview.py ~/nailong/camera_preview.py
+cp ~/NUEDC_2025_C/src/capture.py ~/nailong/capture.py
+```
+
+不要在 WSL 中执行 `source ~/nailong/pi_cv/bin/activate`，因为它会把树莓派虚拟环境的符号链接解析为 WSL 本机路径。
+
+## 摄像头程序
+
+### 网页预览与电脑拍摄
+
+这是当前推荐的采集方式。树莓派端启动：
+
+```bash
+source ~/pi_cv/bin/activate
+cd ~
+python camera_preview.py --preview-mode web --port 8080
+```
+
+在电脑浏览器打开：
+
+```text
+http://192.168.112.67:8080
+```
+
+网页显示实时预览，点击 `Capture` 会将当前原始帧自动以时间戳命名，保存到：
+
+```text
+~/runtime/captures/rpi/
+```
+
+若热点不允许直接访问端口，在电脑或 WSL 中建立 SSH 隧道：
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 nailong@192.168.112.67
+```
+
+然后浏览器打开 `http://localhost:8080`。
+
+### 预览模式
+
+`camera_preview.py` 只打开一次摄像头，可用 `--preview-mode` 选择输出方式：
+
+```bash
+# 树莓派 HDMI 屏幕预览
+DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority python camera_preview.py --preview-mode hdmi --fullscreen
+
+# 电脑浏览器预览和拍摄
+python camera_preview.py --preview-mode web --port 8080
+
+# HDMI 与电脑浏览器同时预览
+DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority python camera_preview.py --preview-mode both --fullscreen --port 8080
+
+# 无预览，仅保留文件触发拍摄
+python camera_preview.py --preview-mode none
+```
+
+运行预览服务时，不要同时运行 `capture.py` 或另一份预览服务，否则会争用 `/dev/video0`。在 SSH 终端按 `Ctrl+C` 停止服务。
+
+### 单张拍摄
+
+不启动预览服务时，可直接拍一张：
+
+```bash
+source ~/pi_cv/bin/activate
+cd ~
+python capture.py --name sample.jpg
+```
+
+### 摄像头连通性测试
+
+在仓库中运行：
+
+```bash
+python src/camera_test.py
+```
+
+它会打开索引 0 的摄像头，并保存 `runtime/captures/rpi_test_shot.jpg`。
+
+### 旧的文件触发方式
+
+当预览服务正在运行时，也会监听：
+
+```text
+~/runtime/capture_request.txt
+```
+
+在 WSL 中写入空请求即可自动命名拍摄：
+
+```bash
+: > ~/nailong/runtime/capture_request.txt
+```
+
+`scripts/request_rpi_capture.py` 是 Windows 侧同一机制的封装；网页模式下通常不需要使用它。
+
+## 图像处理程序
+
+以下命令在 WSL 工程根目录、且已激活 `.venv` 时执行。
+
+### 单图基础测量
+
+```bash
+python scripts/run_basic_measure.py runtime/captures/phone/basic_square_01.jpg
+```
+
+输出包含图形类别、尺寸 `x_mm` 和 `x_cm`。调试图写入：
+
+```text
+runtime/debug/<图片名>/
+```
+
+其中：
+
+- `01_plane_corners.jpg`：原图中识别到的 A4 黑框四角。
+- `02_rectified.jpg`：A4 平面的透视矫正结果。
+- `03_measurement.jpg`：图形轮廓、类别和尺寸标注。
+
+### 批量评估
+
+文件名中应包含 `circle`、`square` 或 `triangle`，以便脚本判断期望类别：
+
+```bash
+python scripts/evaluate_basic_measure.py runtime/captures/phone
+```
+
+默认判定尺寸在 `110 mm` 到 `130 mm` 之间为通过。
+
+### 从树莓派挂载目录导入
+
+在 WSL 中可直接指定 SSHFS 挂载点：
+
+```bash
+python scripts/process_rpi_mount.py \
+  --mount ~/nailong \
+  --remote-dir runtime/captures/rpi \
+  --latest
+```
+
+去掉 `--latest` 可导入并处理全部照片。该脚本会复制图像到当前工程的 `runtime/captures/rpi/`，不删除树莓派原图。
+
+## 靶纸生成程序
+
+在 WSL 开发环境执行：
+
+```bash
 python scripts/targets/generate_basic_targets.py
 python scripts/targets/generate_advanced_targets.py
 python scripts/targets/merge_target_pdfs.py
@@ -50,90 +225,23 @@ python scripts/targets/generate_targets_a3.py
 python scripts/calibration/generate_chessboard_a3.py
 ```
 
-生成后的合并版靶标在：
+生成物位于 `assets/targets/generated/` 和 `assets/calibration/`。
+
+## 当前算法状态
+
+基础题原型的流程为：
 
 ```text
-assets/targets/generated/pdf/all_targets_A4_18pages.pdf
-assets/targets/generated/a3/pdf/all_targets_A3_18pages.pdf
-assets/calibration/fisheye_chessboard_A3_8x12_29mm.pdf
+原图 -> A4 黑框定位 -> 透视矫正 -> 内部黑色图形分割 -> 类别与尺寸计算
 ```
 
-## 树莓派使用
+已验证部分手机和树莓派样本可正确识别圆形、正方形、等边三角形，120 mm 目标的测量值约为 119 到 122 mm。
 
-在树莓派上安装运行依赖：
+USB 摄像头存在明显鱼眼畸变，当前用户决定改用新的方法处理该问题。因此后续修改黑框定位前，应先确定并实现畸变校正方案。地砖照片已用于评估直线约束方案，详细现状见 [当前交接记录](docs/design/current_handoff.md)。
 
-```bash
-python3 -m pip install -r requirements-rpi.txt
-```
+## 交接资料
 
-先测试摄像头是否能正常打开并抓图：
-
-```bash
-python3 src/camera_test.py
-```
-
-测试照片默认保存到：
-
-```text
-runtime/captures/rpi_test_shot.jpg
-```
-
-也可以在树莓派项目目录中直接采集一张图到 `runtime/captures/rpi/`：
-
-```bash
-python3 src/capture.py --name d100_square_01.jpg
-```
-
-如果树莓派目录已经通过 WSL 挂载到 Windows：
-
-```text
-\\wsl.localhost\Ubuntu\home\mizuku\nailong
-```
-
-可以在 Windows 开发机上导入并处理树莓派拍摄的图像：
-
-```powershell
-conda activate opencv-nuedc
-python scripts/process_rpi_mount.py --latest
-```
-
-默认会从挂载目录下的 `runtime/captures/rpi/` 寻找图片，复制到本地 `runtime/captures/rpi/`，然后生成识别结果和 `runtime/debug/` 调试图。
-
-## 离线图像识别
-
-准备好手机或树莓派拍摄的目标图后，可以先在开发机上运行基础题离线识别：
-
-```powershell
-python scripts/run_basic_measure.py runtime/captures/phone/basic_square_01.jpg
-```
-
-脚本会输出图形类型、尺寸 `x`，并在 `runtime/debug/` 下保存调试图：
-
-```text
-01_plane_corners.jpg   黑框四角点检测结果
-02_rectified.jpg       透视矫正后的标准 A4 图
-03_measurement.jpg     内部图形轮廓和尺寸结果
-```
-
-也可以批量评估一个目录下的基础题图片：
-
-```powershell
-python scripts/evaluate_basic_measure.py runtime/captures/phone
-```
-
-批量脚本会根据文件名中的 `circle`、`square`、`triangle` 判断期望类别，并检查尺寸是否落在默认 `110 mm` 到 `130 mm` 范围内。
-
-## 实现路线
-
-1. 完成摄像头采集和相机标定。
-2. 检测 A4 目标纸的黑色边框和底边中点标记。
-3. 使用单目视觉方法估计目标物距离 `D`。
-4. 对目标物平面做透视矫正。
-5. 在矫正后的纸面图像上测量图形尺寸 `x`。
-6. 集成按键、显示、电流采样和功耗计算。
-
-更详细的交接规划见：
-
-```text
-docs/design/handoff_plan.md
-```
+- [当前交接记录](docs/design/current_handoff.md)
+- [总体架构](docs/design/architecture.md)
+- [测量思路](docs/design/measurement_notes.md)
+- [历史交接规划](docs/design/handoff_plan.md)
