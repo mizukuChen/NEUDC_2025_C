@@ -2,8 +2,19 @@ from __future__ import annotations
 
 
 def main() -> int:
-    print("NUEDC 2025 C measurement runtime is not implemented yet.")
-    print("Run src/camera_test.py first to verify the Raspberry Pi camera.")
+    """
+    电赛测量装置软件系统主控入口函数。
+
+    设计流程:
+        1. 初始化 GPIO 引脚，注册物理按键中断回调函数（一键启动）。
+        2. 按键触发后，启动电流采样计数器，累计这 5 秒内的最大功耗。
+        3. 调用相机驱动获取一帧原始图像。
+        4. 运行视觉算法：去鱼眼畸变 -> 定位 A4 纸 -> 透视变换拉平。
+        5. 在拉平图像上测量目标图形的物理尺寸 x 和位置，并通过 PnP 估计相对相机的空间深度距离 D。
+        6. 在 LCD/OLED 显示屏上格式化输出：距离 D、尺寸 x、工作电流 Is、峰值功耗 Pmax。
+    """
+    print("NUEDC 2025 C 测量系统暂未完全集成主控状态机。")
+    print("请先执行 scripts/ 下的独立测试脚本来评估视觉算法精度。")
     return 0
 
 

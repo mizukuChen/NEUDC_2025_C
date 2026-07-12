@@ -64,7 +64,7 @@ source ~/pi_cv/bin/activate
 cd ~
 ```
 
-树莓派端脚本放在家目录 `~`，即：
+旧版树莓派预览脚本已归档在 `archive/src/`。树莓派端如需继续使用，脚本放在家目录 `~`，即：
 
 ```text
 ~/camera_preview.py
@@ -74,7 +74,7 @@ cd ~
 修改采集脚本后，在 WSL 同步到树莓派：
 
 ```bash
-cp ~/NUEDC_2025_C/src/camera_preview.py ~/nailong/camera_preview.py
+cp ~/NUEDC_2025_C/archive/src/camera_preview.py ~/nailong/camera_preview.py
 cp ~/NUEDC_2025_C/src/capture.py ~/nailong/capture.py
 ```
 
@@ -142,16 +142,6 @@ cd ~
 python capture.py --name sample.jpg
 ```
 
-### 摄像头连通性测试
-
-在仓库中运行：
-
-```bash
-python src/camera_test.py
-```
-
-它会打开索引 0 的摄像头，并保存 `runtime/captures/rpi_test_shot.jpg`。
-
 ### 旧的文件触发方式
 
 当预览服务正在运行时，也会监听：
@@ -166,52 +156,34 @@ python src/camera_test.py
 : > ~/nailong/runtime/capture_request.txt
 ```
 
-`scripts/request_rpi_capture.py` 是 Windows 侧同一机制的封装；网页模式下通常不需要使用它。
+原 Windows 侧请求封装已经删除；如继续使用旧预览服务，可直接写入上述请求文件。
 
 ## 图像处理程序
 
 以下命令在 WSL 工程根目录、且已激活 `.venv` 时执行。
 
-### 单图基础测量
+### 单图形状测量
 
 ```bash
-python scripts/run_basic_measure.py runtime/captures/phone/basic_square_01.jpg
+python scripts/run_shape_measure.py <透视校正后的A4图像>
 ```
 
-输出包含图形类别、尺寸 `x_mm` 和 `x_cm`。调试图写入：
+该入口检测圆形、三角形和完整轮廓正方形，输入应当是已经完成 A4 透视校正的图像。旧版完整处理入口已归档到 `archive/scripts/basic_measure/`。
+
+调试图默认写入：
 
 ```text
-runtime/debug/<图片名>/
+runtime/debug/shape_measurement.jpg
 ```
-
-其中：
-
-- `01_plane_corners.jpg`：原图中识别到的 A4 黑框四角。
-- `02_rectified.jpg`：A4 平面的透视矫正结果。
-- `03_measurement.jpg`：图形轮廓、类别和尺寸标注。
 
 ### 批量评估
 
-文件名中应包含 `circle`、`square` 或 `triangle`，以便脚本判断期望类别：
-
 ```bash
-python scripts/evaluate_basic_measure.py runtime/captures/phone
+python scripts/evaluate_shape_measure.py
+python scripts/evaluate_controlled_overlap.py
 ```
 
-默认判定尺寸在 `110 mm` 到 `130 mm` 之间为通过。
-
-### 从树莓派挂载目录导入
-
-在 WSL 中可直接指定 SSHFS 挂载点：
-
-```bash
-python scripts/process_rpi_mount.py \
-  --mount ~/nailong \
-  --remote-dir runtime/captures/rpi \
-  --latest
-```
-
-去掉 `--latest` 可导入并处理全部照片。该脚本会复制图像到当前工程的 `runtime/captures/rpi/`，不删除树莓派原图。
+前者评估基础和分离图形，后者使用 JSON ground truth 评估受控重叠正方形。脚本的完整用途见 `scripts/README.md`。
 
 ## 靶纸生成程序
 
