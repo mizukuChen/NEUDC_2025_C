@@ -9,8 +9,7 @@ from src.vision.measure import Measurement, MeasurementResult, measure
 from src.vision.recognize_digits import DigitRecognition, HogSvmDigitRecognizer
 
 ROOT=Path(__file__).resolve().parents[2]
-DEFAULT_DIGIT_MODEL=ROOT/"assets/models/digit_hog_svm.joblib"
-DEFAULT_DIGIT_METADATA=ROOT/"assets/models/digit_hog_svm_centroids.npz"
+DEFAULT_DIGIT_MODEL=ROOT/"assets/models/digit_hog_linear_svm.npz"
 A4_WIDTH_MM=210.0; A4_HEIGHT_MM=297.0
 
 @dataclass(frozen=True)
@@ -50,7 +49,7 @@ def measure_numbered(rectified_a4:np.ndarray,requested_digit:int,distance_mm:flo
     if not 0<=requested_digit<=9:raise ValueError("requested_digit must be between 0 and 9.")
     geometry=measure(rectified_a4)
     if not geometry.shapes or not all(x.shape_type=="square" for x in geometry.shapes):raise ValueError("Numbered measurement requires square targets only.")
-    digit_recognizer=recognizer or HogSvmDigitRecognizer.load(DEFAULT_DIGIT_MODEL,DEFAULT_DIGIT_METADATA)
+    digit_recognizer=recognizer or HogSvmDigitRecognizer.load(DEFAULT_DIGIT_MODEL)
     sx=rectified_a4.shape[1]/A4_WIDTH_MM; sy=rectified_a4.shape[0]/A4_HEIGHT_MM; scale=(sx+sy)/2
     numbered=[]
     for shape in geometry.shapes:

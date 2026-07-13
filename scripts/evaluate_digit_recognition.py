@@ -17,19 +17,17 @@ from src.vision.recognize_digits import HogSvmDigitRecognizer
 
 
 DEFAULT_INPUT = ROOT / "assets" / "targets" / "generated" / "numbered_controlled"
-DEFAULT_MODEL = ROOT / "assets" / "models" / "digit_hog_svm.joblib"
-DEFAULT_METADATA = ROOT / "assets" / "models" / "digit_hog_svm_centroids.npz"
+DEFAULT_MODEL = ROOT / "assets" / "models" / "digit_hog_linear_svm.npz"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate independent HOG + SVM digit recognition.")
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    parser.add_argument("--metadata", type=Path, default=DEFAULT_METADATA)
     parser.add_argument("--debug-dir", type=Path, default=ROOT / "runtime" / "debug" / "digits")
     args = parser.parse_args()
 
-    recognizer = HogSvmDigitRecognizer.load(args.model, args.metadata)
+    recognizer = HogSvmDigitRecognizer.load(args.model)
     confusion = np.zeros((10, 10), dtype=np.int32)
     confidences: list[float] = []
     total = 0

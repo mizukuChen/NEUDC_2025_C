@@ -11,14 +11,13 @@ from src.vision.recognize_digits import HogSvmDigitRecognizer, extract_digit_pat
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL = ROOT / "assets" / "models" / "digit_hog_svm.joblib"
-METADATA = ROOT / "assets" / "models" / "digit_hog_svm_centroids.npz"
+MODEL = ROOT / "assets" / "models" / "digit_hog_linear_svm.npz"
 
 
 class DigitRecognitionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.recognizer = HogSvmDigitRecognizer.load(MODEL, METADATA)
+        cls.recognizer = HogSvmDigitRecognizer.load(MODEL)
 
     def test_hog_feature_shape_and_finiteness(self) -> None:
         patch = extract_digit_patch(

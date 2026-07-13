@@ -7,6 +7,12 @@ PATCH_SIZE = 64
 CELL_SIZE = 8
 BLOCK_CELLS = 2
 BINS = 9
+HOG_FEATURE_SIZE = (
+    (PATCH_SIZE // CELL_SIZE - BLOCK_CELLS + 1) ** 2
+    * BLOCK_CELLS
+    * BLOCK_CELLS
+    * BINS
+)
 
 
 def extract_hog(image: np.ndarray) -> np.ndarray:

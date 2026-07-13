@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 
 import cv2
-import joblib
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+import sklearn
 from sklearn.svm import LinearSVC
 
 
@@ -18,11 +18,11 @@ if str(ROOT) not in sys.path:
 
 from scripts.targets.generate_numbered_squares import FONT_HEIGHT_RATIO, FONT_PATH
 from src.vision.recognize_digits import PATCH_SIZE, SQUARE_INNER_FRACTION, hog_features
+from src.vision.linear_svm import LinearSvmModel, save_linear_svm
 
 
-DEFAULT_MODEL = ROOT / "assets" / "models" / "digit_hog_svm.joblib"
-DEFAULT_METADATA = ROOT / "assets" / "models" / "digit_hog_svm_centroids.npz"
-DEFAULT_CONFIG = ROOT / "assets" / "models" / "digit_hog_svm.json"
+DEFAULT_MODEL = ROOT / "assets" / "models" / "digit_hog_linear_svm.npz"
+DEFAULT_CONFIG = ROOT / "assets" / "models" / "digit_hog_linear_svm.json"
 
 
 def canonical_patch(digit: int, canvas_size: int = 96) -> np.ndarray:
@@ -72,7 +72,6 @@ def main() -> int:
     parser.add_argument("--samples-per-digit", type=int, default=240)
     parser.add_argument("--seed", type=int, default=20250712)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    parser.add_argument("--metadata", type=Path, default=DEFAULT_METADATA)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args()
 
@@ -81,10 +80,14 @@ def main() -> int:
     svm.fit(features, labels)
 
     centroids = np.stack([features[labels == digit].mean(axis=0) for digit in range(10)])
-    for path in (args.model, args.metadata, args.config):
+    for path in (args.model, args.config):
         path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(svm, args.model)
-    np.savez_compressed(args.metadata, centroids=centroids)
+    model = LinearSvmModel(svm.coef_, svm.intercept_, svm.classes_)
+    numpy_predictions = np.asarray(model.predict(features))
+    sklearn_predictions = svm.predict(features)
+    if not np.array_equal(numpy_predictions, sklearn_predictions):
+        raise RuntimeError("NumPy export does not match scikit-learn predictions")
+    save_linear_svm(args.model, model, centroids=centroids)
     args.config.write_text(
         json.dumps(
             {
@@ -95,7 +98,11 @@ def main() -> int:
                 "seed": args.seed,
                 "patch_size": PATCH_SIZE,
                 "square_inner_fraction": SQUARE_INNER_FRACTION,
-                "svm_implementation": "sklearn.svm.LinearSVC",
+                "model_format": "numpy-linear-svm-v1",
+                "feature_count": model.feature_count,
+                "class_count": len(model.classes),
+                "training_implementation": "sklearn.svm.LinearSVC",
+                "training_sklearn_version": sklearn.__version__,
                 "svm_kernel": "linear",
                 "svm_c": 2.5,
             },
@@ -103,8 +110,7 @@ def main() -> int:
         ),
         encoding="utf-8",
     )
-    predictions = svm.predict(features)
-    accuracy = float(np.mean(predictions.astype(int) == labels))
+    accuracy = float(np.mean(numpy_predictions.astype(int) == labels))
     print(f"samples: {len(labels)}")
     print(f"training_accuracy: {accuracy:.4f}")
     print(f"model: {args.model}")

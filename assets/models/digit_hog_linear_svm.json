@@ -1,0 +1,15 @@
+{
+  "font": "DejaVuSans-Bold.ttf",
+  "font_path": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+  "font_height_ratio": 0.52,
+  "samples_per_digit": 240,
+  "seed": 20250712,
+  "patch_size": 64,
+  "square_inner_fraction": 0.84,
+  "svm_kernel": "linear",
+  "svm_c": 2.5,
+  "model_format": "numpy-linear-svm-v1",
+  "feature_count": 1764,
+  "class_count": 10,
+  "converted_from": "digit_hog_svm.joblib"
+}

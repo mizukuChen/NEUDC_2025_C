@@ -79,7 +79,11 @@
 
 ### `train_digit_svm.py`
 
-生成带轻微旋转、平移、模糊和笔画变化的数字训练图，调用独立 HOG 子模块提取特征，并训练 scikit-learn `LinearSVC`。模型和 HOG 类中心保存在 `assets/models/`。
+生成带轻微旋转、平移、模糊和笔画变化的数字训练图，调用独立 HOG 子模块提取特征，并训练 scikit-learn `LinearSVC`。训练完成后仅把权重、偏置、类别和 HOG 类中心导出为 NumPy NPZ；运行时不依赖 scikit-learn。
+
+### `convert_digit_svm.py`
+
+把 `archive/assets/models/legacy_joblib/` 中的旧 scikit-learn Joblib 数字模型无损转换为纯 NumPy 线性 SVM 模型，并在生成样本上比较两者的决策分数和预测结果。该脚本只用于开发和迁移，不参与树莓派运行。
 
 ### `evaluate_digit_recognition.py`
 

@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
-import joblib
 import numpy as np
 
-from src.vision.hog import PATCH_SIZE, extract_hog
+from src.vision.hog import HOG_FEATURE_SIZE, PATCH_SIZE, extract_hog
+from src.vision.linear_svm import LinearSvmModel, load_linear_svm
 
 SQUARE_INNER_FRACTION = 0.84
 
@@ -45,16 +45,19 @@ class DigitRecognition:
 
 
 class HogSvmDigitRecognizer:
-    def __init__(self, model, centroids: np.ndarray) -> None:
+    def __init__(self, model: LinearSvmModel) -> None:
+        if model.feature_count != HOG_FEATURE_SIZE:
+            raise ValueError(
+                f"digit model expects {model.feature_count} HOG features; "
+                f"runtime produces {HOG_FEATURE_SIZE}"
+            )
+        if not np.array_equal(model.classes, np.arange(10, dtype=np.int32)):
+            raise ValueError("digit model classes must be 0 through 9")
         self.model = model
-        self.centroids = np.asarray(centroids, dtype=np.float32)
 
     @classmethod
-    def load(cls, model_path: Path, metadata_path: Path) -> "HogSvmDigitRecognizer":
-        model = joblib.load(model_path)
-        with np.load(metadata_path) as payload:
-            centroids = payload["centroids"]
-        return cls(model, centroids)
+    def load(cls, model_path: Path) -> "HogSvmDigitRecognizer":
+        return cls(load_linear_svm(model_path))
 
     def recognize_square(
         self,
@@ -65,8 +68,8 @@ class HogSvmDigitRecognizer:
     ) -> DigitRecognition:
         patch = extract_digit_patch(image, center_px, side_px, angle_deg)
         features = hog_features(patch)
-        digit = int(self.model.predict(features.reshape(1, -1))[0])
-        scores = np.asarray(self.model.decision_function(features.reshape(1, -1))).reshape(-1)
+        scores = self.model.decision_function(features)
+        digit = int(self.model.classes[int(np.argmax(scores))])
         best = np.partition(scores, -2)[-2:]
         margin = float(best.max() - best.min())
         confidence = float(1.0 / (1.0 + np.exp(-margin)))
