@@ -7,5 +7,5 @@ Exec=/home/nailong/NUEDC_2025_C/scripts/start_rpi_gui.sh
 Path=/home/nailong/NUEDC_2025_C
 Icon=camera-photo
 Terminal=false
-Categories=Education;Science;
+Categories=Science;
 StartupNotify=true
