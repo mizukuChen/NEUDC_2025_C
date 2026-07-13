@@ -1,0 +1,12 @@
+{
+  "model": "linear_pnp_plane_center_depth",
+  "scale": 0.9695937400556037,
+  "offset_mm": 33.731545776954675,
+  "fit_mae_mm": 6.478107465452527,
+  "fit_rmse_mm": 8.520155802315063,
+  "fit_max_error_mm": 36.98187214678728,
+  "inlier_count": 76,
+  "excluded_images": [
+    "d1658mm_20260710_225320_997951.jpg"
+  ]
+}

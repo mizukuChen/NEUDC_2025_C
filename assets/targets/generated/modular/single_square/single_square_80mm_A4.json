@@ -1,0 +1,19 @@
+{
+  "page_mm": [
+    210.0,
+    297.0
+  ],
+  "dpi": 300,
+  "target_type": "single_square",
+  "shapes": [
+    {
+      "shape_type": "square",
+      "cx_mm": 105,
+      "cy_mm": 148.5,
+      "size_mm": 80,
+      "angle_deg": 0,
+      "digit": null,
+      "font_size_px": null
+    }
+  ]
+}

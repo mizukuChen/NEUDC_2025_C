@@ -1,0 +1,35 @@
+{
+  "pair_id": "pair_03_04",
+  "seed": 2025,
+  "base_preset": "03",
+  "variant": 4,
+  "squares": [
+    {
+      "shape_type": "square",
+      "cx_mm": 63.34814134734716,
+      "cy_mm": 197.82563149383054,
+      "size_mm": 62.27152058286847,
+      "angle_deg": -18.418883024884313,
+      "digit": 5,
+      "font_size_px": 382
+    },
+    {
+      "shape_type": "square",
+      "cx_mm": 105.84499442299558,
+      "cy_mm": 148.22286361554546,
+      "size_mm": 70.38570884025638,
+      "angle_deg": 7.448269962277057,
+      "digit": 6,
+      "font_size_px": 432
+    },
+    {
+      "shape_type": "square",
+      "cx_mm": 150.46522931222023,
+      "cy_mm": 99.50120789988092,
+      "size_mm": 55.37941355510172,
+      "angle_deg": -36.61321929368051,
+      "digit": 7,
+      "font_size_px": 340
+    }
+  ]
+}

@@ -175,6 +175,11 @@ def _interior_support(foreground: np.ndarray, polygon: np.ndarray) -> float:
     region = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
     shifted = integer - np.array([x0, y0], dtype=np.int32)
     cv2.fillConvexPoly(region, shifted, 255)
+    # 数字位于方块中央，会在黑色内部形成白色孔洞。只验证外圈黑色带，
+    # 忽略中央 68% 区域，避免数字降低实心支持率。
+    center = shifted.astype(np.float32).mean(axis=0)
+    inner = center + (shifted.astype(np.float32) - center) * 0.68
+    cv2.fillConvexPoly(region, np.rint(inner).astype(np.int32), 0)
     pixels = region > 0
     if not np.any(pixels):
         return 0.0

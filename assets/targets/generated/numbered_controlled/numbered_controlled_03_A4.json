@@ -1,0 +1,28 @@
+{
+  "page_mm": [
+    210.0,
+    297.0
+  ],
+  "dpi": 300,
+  "target_type": "numbered_squares",
+  "squares": [
+    {
+      "shape_type": "square",
+      "cx_mm": 72,
+      "cy_mm": 88,
+      "size_mm": 56,
+      "angle_deg": 0,
+      "digit": 4,
+      "font_size_px": 344
+    },
+    {
+      "shape_type": "square",
+      "cx_mm": 138,
+      "cy_mm": 205,
+      "size_mm": 62,
+      "angle_deg": -28,
+      "digit": 5,
+      "font_size_px": 381
+    }
+  ]
+}

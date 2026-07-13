@@ -2,13 +2,26 @@
 
 本目录存放标定、评估、单次运行、调试以及测试图生成工具。正式视觉算法位于 `src/vision/`，本目录中的程序主要负责调用算法、准备数据和输出报告。
 
+树莓派正式 GUI 入口为 `python -m src.main`。界面支持普通识别、手动输入 0～9 的数字识别、相机抓拍测量和选择原始图片测试；完整应用 pipeline 位于 `src/application.py`。若系统没有 Tkinter，需要通过系统包管理器安装 `python3-tk`，它不是 pip 依赖。
+
 ## 当前测量与评估主线
 
 ### `run_shape_measure.py`
 
-读取一张已经完成 A4 透视校正的图像，调用 `src/vision/measure_shapes.py` 检测圆形、三角形和完整轮廓正方形，并把标注结果写入 `runtime/debug/`。
+读取一张已经完成 A4 透视校正的图像，调用统一入口 `src/vision/measure.py`。统一入口根据完整轮廓对黑色前景的解释率，自动选择：
+
+- `measure_shapes.py`：圆形、三角形和完整轮廓正方形；
+- `measure_overlap.py`：实心重叠多正方形。
+
+终端输出中的 `source` 会标明结果来自 `contour` 或 `overlap_lines`，标注图写入 `runtime/debug/`。
 
 该脚本不负责鱼眼去畸变和 A4 定位。
+
+该脚本对应普通检测任务：内部白色数字只视为方块纹理；单目标输出该目标尺寸，多正方形输出最小面积正方形的边长。
+
+### `run_numbered_measure.py`
+
+发挥（3）的开发入口。第二个位置参数模拟 IO 输入数字，程序复用普通几何检测，识别所有正方形编号，找到指定数字并输出对应正方形边长。实际按键、串口或触摸屏输入适配尚未决定。
 
 ### `evaluate_shape_measure.py`
 
@@ -26,7 +39,7 @@
 
 ### `targets/generate_overlap_squares.py`
 
-生成受控的实心重叠多正方形 PNG，同时保存同名 JSON ground truth。生成前会检查每个正方形每条边被其他正方形覆盖的区间并集，确保单边覆盖率严格小于 50%。
+调用 `presets/overlap.py`，使用公共正方形渲染器生成受控重叠多正方形 PNG/JSON；生成前检查每条边被其他正方形覆盖的区间并集，确保单边覆盖率严格小于 50%。
 
 ### `evaluate_controlled_overlap.py`
 
@@ -49,6 +62,34 @@
 6. 去重后的最终结果。
 
 调试输出属于可再生成文件，统一写入 `runtime/debug/`。
+
+## 独立数字识别模块
+
+### `targets/generate_numbered_squares.py`
+
+调用 `presets/numbered.py`，在公共正方形组件上使用 Pillow 和 `DejaVuSans-Bold.ttf` 添加白色数字，并保存 PNG/JSON。字号固定为方块像素边长的 52%，同尺寸的 0～9 使用完全相同字号；数字与方块作为整体在 `[-45°, 45°]` 内旋转。
+
+### `targets/generate_numbered_overlap_squares.py`
+
+调用 `presets/numbered_overlap.py` 生成带数字的受控重叠方块。除单边覆盖率必须小于 50% 外，还要求每个方块参与真实重叠、数字唯一，并保证以数字中心为圆心、方块边长 30% 为半径的安全区不被其他方块覆盖。
+
+### `targets/generate_paired_numbered_overlap.py`
+
+围绕编号重叠预设随机改变中心、尺寸和角度，并为同一几何分别输出无数字图与带数字图。`evaluate_paired_numbered_overlap.py` 成对比较几何重建结果，再检查每个输入数字是否选择了正确方块，用于区分重叠布局失败、数字干扰几何和纯数字识别失败。
+
+### `train_digit_svm.py`
+
+生成带轻微旋转、平移、模糊和笔画变化的数字训练图，调用独立 HOG 子模块提取特征，并训练 scikit-learn `LinearSVC`。模型和 HOG 类中心保存在 `assets/models/`。
+
+### `evaluate_digit_recognition.py`
+
+使用编号方块 JSON 中的真实几何参数裁剪和转正方块，独立评估 HOG+SVM 的数字准确率、置信度和混淆矩阵，并把数字小图写入 `runtime/debug/digits/`。
+
+### `evaluate_measurement_tasks.py`
+
+对两套任务入口进行生成图端到端评估。普通模式只把 PNG 交给 `measure_normal()`，检查基础图形、分离方块、重叠方块及带数字方块的最终尺寸；数字模式仅把保证存在的目标数字交给 `measure_numbered()`，检查匹配方块及其尺寸。JSON ground truth 只在检测完成后用于评分，不参与检测。
+
+数字识别算法仍由独立的 `recognize_digits.py` 和 `hog.py` 实现，任务层通过 `measurement_tasks.py` 将其与公共几何检测组合。
 
 ## 标定工具
 
@@ -78,6 +119,47 @@
 
 ## 标准目标生成与打印
 
+PNG/JSON 测试图生成采用三层结构：
+
+```text
+targets/generation/    页面、几何、数字、渲染、约束和输出能力
+        ↑
+targets/presets/       basic、separate、overlap、numbered 上层布局
+        ↑
+targets/generate_*.py  薄命令行入口
+```
+
+`generation/` 不包含具体案例，`presets/` 不包含绘制实现。数字是正方形的可选装饰，不另写一套正方形生成逻辑。
+
+### `targets/generate_augmented_dataset.py`
+
+读取现有标准 PNG/JSON，为已经完成 A4 透视校正的图像生成可复现的轻微扰动版本。独立的 `targets/augmentation/` 子模块包含残余透视、静态失焦、弱光照梯度和可选的极弱传感器噪声；默认关闭噪声，不模拟运动模糊、JPEG 压缩或打印误差。每张输出 JSON 会保留原真值，并记录随机种子、实际采样参数和源图片路径。
+
+例如，为编号标准图各生成 5 个版本：
+
+```bash
+python scripts/targets/generate_augmented_dataset.py \
+  assets/targets/generated/numbered_controlled --variants 5
+```
+
+生成后可用 `evaluate_augmented_measurements.py <扰动目录>` 对普通任务和编号任务进行端到端评分。
+
+### `evaluate_augmentation_limits.py`
+
+逐项关闭其他扰动，分别扫描高斯模糊、光照梯度和残余透视的强度。报告基础图形、分离方块、重叠方块、带数字方块普通测量以及数字匹配的通过率、最大尺寸误差和异常数；可用 `--csv` 保存明细。该工具只评估现有算法，不自动调整算法参数。
+
+### `targets/generate_single_shapes.py`
+
+调用 `presets/basic.py` 生成单圆形、单三角形和单正方形 PNG/JSON。
+
+### `targets/generate_separate_squares.py`
+
+调用 `presets/separate.py` 生成多个彼此分离的正方形 PNG/JSON。
+
+### `targets/generate_single_squares.py` / `targets/generate_single_numbered_square.py`
+
+分别生成不同尺寸/角度的单正方形，以及用于打印检查的正向单编号方块；两者都复用公共方块与数字渲染模块。
+
 ### `targets/generate_basic_targets.py`
 
 生成基础圆形、三角形和正方形的 A4 PDF 与 PNG。
@@ -89,6 +171,10 @@
 ### `targets/generate_targets_a3.py`
 
 把基础及高级 A4 目标排版到 A3 页面中央并生成 PDF。该脚本目前仍包含旧版 overlap 预设，使用前应更新或将其归档。
+
+### `targets/generate_print_selection_a3.py`
+
+从当前模块化生成系统的标准 A4 PNG 中选取少量代表性目标，以真实 210×297 mm 尺寸居中嵌入竖版 A3（297×420 mm），输出一个多页打印 PDF 和对应页码 JSON 清单。A4 四周因此分别保留 43.5 mm 与 61.5 mm 的 A3 余量，避免打印机不可打印边缘裁掉 A4 黑框。
 
 ### `targets/merge_target_pdfs.py`
 

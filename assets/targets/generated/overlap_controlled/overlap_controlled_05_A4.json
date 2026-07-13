@@ -1,16 +1,19 @@
 {
   "page_mm": [
-    210.0,
-    297.0
+    210,
+    297
   ],
   "dpi": 300,
   "max_edge_coverage": 0.5,
   "squares": [
     {
+      "shape_type": "square",
       "cx_mm": 72,
       "cy_mm": 137,
       "size_mm": 76,
       "angle_deg": 18,
+      "digit": null,
+      "font_size_px": null,
       "edge_coverage": [
         0.0,
         0.3071535767883942,
@@ -19,10 +22,13 @@
       ]
     },
     {
+      "shape_type": "square",
       "cx_mm": 144,
       "cy_mm": 165,
       "size_mm": 72,
       "angle_deg": -14,
+      "digit": null,
+      "font_size_px": null,
       "edge_coverage": [
         0.17158579289644824,
         0.0,

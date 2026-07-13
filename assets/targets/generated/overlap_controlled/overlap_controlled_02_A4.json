@@ -1,16 +1,19 @@
 {
   "page_mm": [
-    210.0,
-    297.0
+    210,
+    297
   ],
   "dpi": 300,
   "max_edge_coverage": 0.5,
   "squares": [
     {
+      "shape_type": "square",
       "cx_mm": 54,
       "cy_mm": 100,
       "size_mm": 58,
       "angle_deg": 10,
+      "digit": null,
+      "font_size_px": null,
       "edge_coverage": [
         0.0,
         0.30815407703851927,
@@ -19,10 +22,13 @@
       ]
     },
     {
+      "shape_type": "square",
       "cx_mm": 110,
       "cy_mm": 150,
       "size_mm": 68,
       "angle_deg": 0,
+      "digit": null,
+      "font_size_px": null,
       "edge_coverage": [
         0.06803401700850426,
         0.0,
@@ -31,10 +37,13 @@
       ]
     },
     {
+      "shape_type": "square",
       "cx_mm": 156,
       "cy_mm": 210,
       "size_mm": 56,
       "angle_deg": -14,
+      "digit": null,
+      "font_size_px": null,
       "edge_coverage": [
         0.0,
         0.0,

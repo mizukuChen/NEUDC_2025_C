@@ -1,0 +1,61 @@
+{
+  "page_mm": [
+    210,
+    297
+  ],
+  "dpi": 300,
+  "target_type": "numbered_squares",
+  "layout": "overlap",
+  "max_edge_coverage": 0.5,
+  "digit_safe_radius_ratio": 0.3,
+  "squares": [
+    {
+      "shape_type": "square",
+      "cx_mm": 58,
+      "cy_mm": 98,
+      "size_mm": 58,
+      "angle_deg": 18,
+      "digit": 2,
+      "font_size_px": 356,
+      "edge_coverage": [
+        0.0,
+        0.3586793396698349,
+        0.12156078039019509,
+        0.0
+      ],
+      "digit_clearance_mm": 21.269151096443093
+    },
+    {
+      "shape_type": "square",
+      "cx_mm": 105,
+      "cy_mm": 145,
+      "size_mm": 66,
+      "angle_deg": -8,
+      "digit": 3,
+      "font_size_px": 406,
+      "edge_coverage": [
+        0.23411705852926462,
+        0.21810905452726362,
+        0.24212106053026514,
+        0.23611805902951477
+      ],
+      "digit_clearance_mm": 28.875108003430473
+    },
+    {
+      "shape_type": "square",
+      "cx_mm": 152,
+      "cy_mm": 192,
+      "size_mm": 58,
+      "angle_deg": 15,
+      "digit": 4,
+      "font_size_px": 356,
+      "edge_coverage": [
+        0.15657828914457228,
+        0.0,
+        0.0,
+        0.33616808404202103
+      ],
+      "digit_clearance_mm": 21.269151096443093
+    }
+  ]
+}

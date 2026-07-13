@@ -5,9 +5,12 @@ runtime/captures/*
 !runtime/captures/.gitkeep
 runtime/calibration/*
 !runtime/calibration/.gitkeep
+!runtime/calibration/fisheye_1280x720.json
+!runtime/calibration/distance_linear.json
 runtime/logs/*
 !runtime/logs/.gitkeep
 runtime/debug/
+runtime/reports/
 
 .venv/
 venv/

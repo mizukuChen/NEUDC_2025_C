@@ -1,0 +1,12 @@
+{
+  "font": "DejaVuSans-Bold.ttf",
+  "font_path": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+  "font_height_ratio": 0.52,
+  "samples_per_digit": 240,
+  "seed": 20250712,
+  "patch_size": 64,
+  "square_inner_fraction": 0.84,
+  "svm_implementation": "sklearn.svm.LinearSVC",
+  "svm_kernel": "linear",
+  "svm_c": 2.5
+}

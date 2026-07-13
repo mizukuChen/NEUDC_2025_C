@@ -1,0 +1,617 @@
+{
+  "pdf": "representative_targets_A3_portrait.pdf",
+  "pages": [
+    {
+      "page": 1,
+      "category": "basic",
+      "name": "单圆形 120 mm",
+      "source_png": "assets/targets/generated/modular/basic/basic_circle_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 2,
+      "category": "basic",
+      "name": "单三角形 120 mm",
+      "source_png": "assets/targets/generated/modular/basic/basic_triangle_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 3,
+      "category": "basic",
+      "name": "单正方形 120 mm",
+      "source_png": "assets/targets/generated/modular/basic/basic_square_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 4,
+      "category": "single_square",
+      "name": "单正方形 60 mm",
+      "source_png": "assets/targets/generated/modular/single_square/single_square_60mm_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 5,
+      "category": "single_square",
+      "name": "单正方形 80 mm",
+      "source_png": "assets/targets/generated/modular/single_square/single_square_80mm_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 6,
+      "category": "single_square",
+      "name": "单正方形 100 mm",
+      "source_png": "assets/targets/generated/modular/single_square/single_square_100mm_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 7,
+      "category": "single_square",
+      "name": "单正方形 90 mm、旋转 27 度",
+      "source_png": "assets/targets/generated/modular/single_square/single_square_90mm_rotated_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 8,
+      "category": "separate",
+      "name": "分离方块 3 个",
+      "source_png": "assets/targets/generated/modular/separate/separate_squares_01_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 9,
+      "category": "separate",
+      "name": "分离方块 4 个",
+      "source_png": "assets/targets/generated/modular/separate/separate_squares_02_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 10,
+      "category": "separate",
+      "name": "分离方块 5 个",
+      "source_png": "assets/targets/generated/modular/separate/separate_squares_03_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 11,
+      "category": "separate",
+      "name": "分离方块 4 个-布局 B",
+      "source_png": "assets/targets/generated/modular/separate/separate_squares_04_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 12,
+      "category": "overlap",
+      "name": "重叠方块 2 个",
+      "source_png": "assets/targets/generated/overlap_controlled/overlap_controlled_01_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 13,
+      "category": "overlap",
+      "name": "重叠方块 3 个-链式 A",
+      "source_png": "assets/targets/generated/overlap_controlled/overlap_controlled_02_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 14,
+      "category": "overlap",
+      "name": "重叠方块 4 个-链式",
+      "source_png": "assets/targets/generated/overlap_controlled/overlap_controlled_03_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 15,
+      "category": "overlap",
+      "name": "重叠方块 3 个-布局 A",
+      "source_png": "assets/targets/generated/overlap_controlled/overlap_controlled_04_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 16,
+      "category": "overlap",
+      "name": "重叠方块 2 个-布局 B",
+      "source_png": "assets/targets/generated/overlap_controlled/overlap_controlled_05_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 17,
+      "category": "overlap",
+      "name": "重叠方块 3 个-布局 B",
+      "source_png": "assets/targets/generated/overlap_controlled/overlap_controlled_06_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 18,
+      "category": "overlap",
+      "name": "重叠方块 3 个-布局 C",
+      "source_png": "assets/targets/generated/overlap_controlled/overlap_controlled_07_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 19,
+      "category": "overlap",
+      "name": "重叠方块 4 个",
+      "source_png": "assets/targets/generated/overlap_controlled/overlap_controlled_08_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 20,
+      "category": "overlap",
+      "name": "重叠方块 3 个-尺寸差异",
+      "source_png": "assets/targets/generated/overlap_controlled/overlap_controlled_09_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 21,
+      "category": "numbered",
+      "name": "分离编号 0、1",
+      "source_png": "assets/targets/generated/numbered_controlled/numbered_controlled_01_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 22,
+      "category": "numbered",
+      "name": "分离编号 2、3",
+      "source_png": "assets/targets/generated/numbered_controlled/numbered_controlled_02_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 23,
+      "category": "numbered",
+      "name": "分离编号 4、5",
+      "source_png": "assets/targets/generated/numbered_controlled/numbered_controlled_03_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 24,
+      "category": "numbered",
+      "name": "分离编号 6、7",
+      "source_png": "assets/targets/generated/numbered_controlled/numbered_controlled_04_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 25,
+      "category": "numbered",
+      "name": "分离编号 8、9",
+      "source_png": "assets/targets/generated/numbered_controlled/numbered_controlled_05_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 26,
+      "category": "numbered_overlap",
+      "name": "重叠编号 0、1",
+      "source_png": "assets/targets/generated/numbered_overlap_controlled/numbered_overlap_01_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 27,
+      "category": "numbered_overlap",
+      "name": "重叠编号 2、3、4",
+      "source_png": "assets/targets/generated/numbered_overlap_controlled/numbered_overlap_02_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 28,
+      "category": "numbered_overlap",
+      "name": "重叠编号 5、6、7",
+      "source_png": "assets/targets/generated/numbered_overlap_controlled/numbered_overlap_03_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 29,
+      "category": "numbered_overlap",
+      "name": "重叠编号 8、9",
+      "source_png": "assets/targets/generated/numbered_overlap_controlled/numbered_overlap_04_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 30,
+      "category": "single_numbered",
+      "name": "正向单编号方块 1、45 mm",
+      "source_png": "assets/targets/generated/modular/single_numbered/single_numbered_digit_1_45mm_upright_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 31,
+      "category": "single_numbered",
+      "name": "正向单编号方块 3、55 mm",
+      "source_png": "assets/targets/generated/modular/single_numbered/single_numbered_digit_3_55mm_upright_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 32,
+      "category": "single_numbered",
+      "name": "正向单编号方块 5、70 mm",
+      "source_png": "assets/targets/generated/modular/single_numbered/single_numbered_digit_5_upright_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 33,
+      "category": "single_numbered",
+      "name": "正向单编号方块 7、85 mm",
+      "source_png": "assets/targets/generated/modular/single_numbered/single_numbered_digit_7_85mm_upright_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    },
+    {
+      "page": 34,
+      "category": "single_numbered",
+      "name": "正向单编号方块 9、105 mm",
+      "source_png": "assets/targets/generated/modular/single_numbered/single_numbered_digit_9_105mm_upright_A4.png",
+      "a3_mm": [
+        297.0,
+        420.0
+      ],
+      "a4_mm": [
+        210.0,
+        297.0
+      ],
+      "a4_offset_mm": [
+        43.5,
+        61.5
+      ]
+    }
+  ]
+}

@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.vision.measure_shapes import draw_shape_measurements, measure_shapes
+from src.vision.measure import draw_measurements
+from src.vision.measurement_tasks import measure_normal
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,19 +32,22 @@ def main() -> int:
         print(f"ERROR: cannot read image: {args.image}", file=sys.stderr)
         return 2
 
-    # 1. 调用 measure_shapes 进行多目标形状测量与分类
-    result = measure_shapes(image)
+    # 1. 普通模式：数字仅作为内部纹理，按题目规则选择需要输出的尺寸 x
+    task_result = measure_normal(image)
+    result = task_result.geometry
 
     # 2. 绘制检测结果轮廓与文字标签，并保存图像
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(args.output), draw_shape_measurements(image, result))
+    cv2.imwrite(str(args.output), draw_measurements(image, result))
 
     # 3. 在控制台格式化输出识别到的排版、图形个数和各图形参数
     print(f"layout: {result.layout}")
+    print(f"contour_foreground_coverage: {result.contour_foreground_coverage:.3f}")
     print(f"count: {len(result.shapes)}")
+    print(f"selected_x_mm: {task_result.x_mm:.2f}")
     for index, shape in enumerate(result.shapes, start=1):
         print(
-            f"shape[{index}]: type={shape.shape_type} x_mm={shape.x_mm:.2f} "
+            f"shape[{index}]: type={shape.shape_type} source={shape.source} x_mm={shape.x_mm:.2f} "
             f"center_mm=({shape.center_mm[0]:.1f},{shape.center_mm[1]:.1f}) "
             f"angle_deg={shape.angle_deg:.1f} confidence={shape.confidence:.3f}"
         )
