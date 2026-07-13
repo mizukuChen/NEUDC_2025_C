@@ -54,15 +54,23 @@ python -c "import cv2; print(cv2.__version__)"
 
 ## 树莓派环境与部署
 
-树莓派当前地址为 `192.168.112.67`，用户名为 `nailong`，USB 摄像头使用 `/dev/video0`。
+树莓派当前地址为 `192.168.134.67`，用户名为 `nailong`，USB 摄像头使用 `/dev/video0`。
 
 进入树莓派终端：
 
 ```bash
-ssh nailong@192.168.112.67
-source ~/pi_cv/bin/activate
-cd ~
+ssh nailong@192.168.134.67
+cd ~/NUEDC_2025_C
+source .venv/bin/activate
 ```
+
+正式 GUI 可在树莓派项目目录执行：
+
+```bash
+scripts/start_rpi_gui.sh
+```
+
+该脚本固定使用项目 `.venv`、`/dev/video0` 和 1280×720 采集参数，日志写入 `runtime/logs/gui.log`。桌面快捷方式模板位于 `deploy/rpi/nuedc-vision.desktop`，安装到树莓派的 `~/Desktop/` 后双击即可启动。
 
 旧版树莓派预览脚本已归档在 `archive/src/`。树莓派端如需继续使用，脚本放在家目录 `~`，即：
 

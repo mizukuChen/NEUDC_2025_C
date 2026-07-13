@@ -15,3 +15,4 @@ runtime/reports/
 .venv/
 venv/
 *.log
+.codex/

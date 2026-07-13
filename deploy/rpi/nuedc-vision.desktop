@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=电赛视觉测量
+Comment=启动普通识别和数字识别界面
+Exec=/home/nailong/NUEDC_2025_C/scripts/start_rpi_gui.sh
+Path=/home/nailong/NUEDC_2025_C
+Icon=camera-photo
+Terminal=false
+Categories=Education;Science;
+StartupNotify=true
