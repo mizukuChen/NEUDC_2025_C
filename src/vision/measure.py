@@ -66,14 +66,19 @@ def measure(image: np.ndarray, contour_coverage_threshold: float=0.92) -> Measur
     return MeasurementResult(shapes,"overlap",(sx+sy)/2,coverage)
 
 
-def draw_measurements(image: np.ndarray,result: MeasurementResult)->np.ndarray:
+def draw_measurements(
+    image: np.ndarray,
+    result: MeasurementResult,
+    selected_index: int | None = None,
+) -> np.ndarray:
     debug=image.copy(); colors={"circle":(255,0,0),"triangle":(0,165,255),"square":(0,0,255)}
     for i,shape in enumerate(result.shapes,1):
-        color=colors[shape.shape_type]
+        color=(0,180,0) if selected_index==i-1 else colors[shape.shape_type]
         if shape.contour is not None:
             cv2.drawContours(debug,[shape.contour],-1,color,4,cv2.LINE_AA); origin=shape.contour.reshape(-1,2).min(axis=0)
         elif shape.corners is not None:
             corners=np.rint(shape.corners).astype(np.int32).reshape(-1,1,2); cv2.polylines(debug,[corners],True,color,4,cv2.LINE_AA); origin=corners.reshape(-1,2).min(axis=0)
         else: continue
-        cv2.putText(debug,f"{i} {shape.shape_type} {shape.x_mm:.1f} mm",tuple(np.rint(origin).astype(int)),cv2.FONT_HERSHEY_SIMPLEX,1.1,color,3,cv2.LINE_AA)
+        marker="*" if selected_index==i-1 else ""
+        cv2.putText(debug,f"{marker}{i} {shape.shape_type} {shape.x_mm:.1f} mm",tuple(np.rint(origin).astype(int)),cv2.FONT_HERSHEY_SIMPLEX,1.1,color,3,cv2.LINE_AA)
     return debug
