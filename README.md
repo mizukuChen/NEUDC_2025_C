@@ -70,7 +70,7 @@ source .venv/bin/activate
 scripts/start_rpi_gui.sh
 ```
 
-该脚本固定使用项目 `.venv`、`/dev/video0` 和 1280×720 采集参数，日志写入 `runtime/logs/gui.log`。桌面快捷方式模板位于 `deploy/rpi/nuedc-vision.desktop`，安装到树莓派的 `~/Desktop/` 后双击即可启动。
+该脚本固定使用项目 `.venv`、`/dev/video0` 和 1920×1080 YUYV 采集参数；每次相机测量采集三帧并融合，日志写入 `runtime/logs/gui.log`。桌面快捷方式模板位于 `deploy/rpi/nuedc-vision.desktop`，安装到树莓派的 `~/Desktop/` 后双击即可启动。
 
 旧版树莓派预览脚本已归档在 `archive/src/`。树莓派端如需继续使用，脚本放在家目录 `~`，即：
 

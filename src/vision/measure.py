@@ -6,6 +6,8 @@ import cv2
 import numpy as np
 
 from src.vision.measure_overlap import reconstruct_overlapping_squares
+from src.vision.lowres_preprocess import prepare_low_resolution_a4
+from src.vision.measure_overlap_lowres import reconstruct_low_resolution_squares
 from src.vision.measure_shapes import (
     A4_HEIGHT_MM, A4_WIDTH_MM, BORDER_WIDTH_MM, CONTENT_MARGIN_MM,
     ShapeMeasurementResult, measure_shapes,
@@ -31,6 +33,7 @@ class MeasurementResult:
     layout: str
     pixels_per_mm: float
     contour_foreground_coverage: float
+    measurement_image: np.ndarray | None = None
 
 
 def _foreground_mask(image: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
@@ -64,6 +67,68 @@ def measure(image: np.ndarray, contour_coverage_threshold: float=0.92) -> Measur
     shapes=tuple(Measurement("square",x.side_mm,x.center_mm,x.angle_deg,x.confidence,"overlap_lines",corners=x.corners,area_mm2=x.side_mm*x.side_mm) for x in result.squares)
     if not shapes: raise ValueError("No valid shapes found by either measurement module.")
     return MeasurementResult(shapes,"overlap",(sx+sy)/2,coverage)
+
+
+def measure_low_resolution(
+    rectified_frames: tuple[np.ndarray, ...] | list[np.ndarray],
+    contour_coverage_threshold: float = 0.92,
+) -> MeasurementResult:
+    """在多帧2 px/mm A4图上先做完整轮廓检测，必要时启动重叠重建。"""
+    prepared = prepare_low_resolution_a4(rectified_frames)
+    image = prepared.image
+    contour_result = None
+    coverage = 0.0
+    try:
+        contour_result = measure_shapes(image)
+        coverage = _coverage(image, contour_result)
+    except ValueError:
+        pass
+
+    if contour_result is not None and coverage >= contour_coverage_threshold:
+        shapes = tuple(
+            Measurement(
+                item.shape_type,
+                item.x_mm,
+                item.center_mm,
+                item.angle_deg,
+                item.confidence,
+                "contour_lowres",
+                contour=item.contour,
+                area_mm2=item.area_mm2,
+            )
+            for item in contour_result.shapes
+        )
+        return MeasurementResult(
+            shapes,
+            contour_result.layout,
+            contour_result.pixels_per_mm,
+            coverage,
+            image,
+        )
+
+    overlap = reconstruct_low_resolution_squares(rectified_frames)
+    shapes = tuple(
+        Measurement(
+            "square",
+            item.side_mm,
+            item.center_mm,
+            item.angle_deg,
+            item.confidence,
+            "overlap_lowres",
+            corners=item.corners,
+            area_mm2=item.side_mm * item.side_mm,
+        )
+        for item in overlap.squares
+    )
+    if not shapes:
+        raise ValueError("低分辨率图像中没有找到有效目标")
+    return MeasurementResult(
+        shapes,
+        "overlap",
+        overlap.prepared.pixels_per_mm,
+        coverage,
+        overlap.prepared.image,
+    )
 
 
 def draw_measurements(

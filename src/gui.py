@@ -176,7 +176,7 @@ class MeasurementGui:
         self._photos[title] = photo
         self.image_labels[title].configure(image=photo, text="")
 
-    def _start(self, loader) -> None:
+    def _start(self, loader, camera_input: bool = False) -> None:
         from tkinter import messagebox
 
         if self._busy:
@@ -192,13 +192,18 @@ class MeasurementGui:
         self.camera_button.configure(state="disabled")
         self.file_button.configure(state="disabled")
         self._clear_views()
-        self._set_status("正在获取输入图像……")
+        self._set_status("正在采集三帧相机图像……" if camera_input else "正在获取输入图像……")
 
         def worker() -> None:
             try:
-                raw = loader()
+                loaded = loader()
+                raw = loaded[-1] if camera_input else loaded
                 self.root.after(0, self._input_ready, raw)
-                result = self.application.process_raw(raw, mode, digit)
+                result = (
+                    self.application.process_camera_frames(loaded, mode, digit)
+                    if camera_input
+                    else self.application.process_raw(raw, mode, digit)
+                )
             except Exception as exc:
                 self.root.after(0, self._error, str(exc))
             else:
@@ -213,9 +218,10 @@ class MeasurementGui:
 
     def measure_camera(self) -> None:
         self._start(
-            lambda: self.application.capture_frame(
+            lambda: self.application.capture_frames(
                 self.camera_index, self.width, self.height
-            )
+            ),
+            camera_input=True,
         )
 
     def measure_file(self) -> None:
@@ -264,8 +270,8 @@ class MeasurementGui:
 def main() -> int:
     parser = argparse.ArgumentParser(description="树莓派视觉测量 GUI")
     parser.add_argument("--camera-index", type=int, default=0)
-    parser.add_argument("--width", type=int, default=1280)
-    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--width", type=int, default=1920)
+    parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--fisheye-calibration", type=Path, default=DEFAULT_FISHEYE)
     parser.add_argument("--distance-calibration", type=Path, default=DEFAULT_DISTANCE)
     parser.add_argument("--strip-fraction", type=float, default=1 / 3)

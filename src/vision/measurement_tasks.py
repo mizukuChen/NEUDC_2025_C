@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.vision.measure import Measurement, MeasurementResult, measure
+from src.vision.measure import Measurement, MeasurementResult, measure, measure_low_resolution
 from src.vision.recognize_digits import DigitRecognition, HogSvmDigitRecognizer
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -45,9 +45,14 @@ def measure_normal(rectified_a4:np.ndarray,distance_mm:float|None=None)->NormalM
     geometry=measure(rectified_a4); selected=_select_normal_shape(geometry)
     return NormalMeasurementResult(distance_mm,geometry,selected,selected.x_mm)
 
-def measure_numbered(rectified_a4:np.ndarray,requested_digit:int,distance_mm:float|None=None,recognizer:HogSvmDigitRecognizer|None=None)->NumberedMeasurementResult:
+def _recognize_numbered_squares(
+    rectified_a4: np.ndarray,
+    geometry: MeasurementResult,
+    requested_digit: int,
+    distance_mm: float | None,
+    recognizer: HogSvmDigitRecognizer | None,
+) -> NumberedMeasurementResult:
     if not 0<=requested_digit<=9:raise ValueError("requested_digit must be between 0 and 9.")
-    geometry=measure(rectified_a4)
     if not geometry.shapes or not all(x.shape_type=="square" for x in geometry.shapes):raise ValueError("Numbered measurement requires square targets only.")
     digit_recognizer=recognizer or HogSvmDigitRecognizer.load(DEFAULT_DIGIT_MODEL)
     sx=rectified_a4.shape[1]/A4_WIDTH_MM; sy=rectified_a4.shape[0]/A4_HEIGHT_MM; scale=(sx+sy)/2
@@ -60,3 +65,37 @@ def measure_numbered(rectified_a4:np.ndarray,requested_digit:int,distance_mm:flo
     if len(matches)>1:raise ValueError(f"Requested digit {requested_digit} is ambiguous in the image.")
     selected=matches[0]
     return NumberedMeasurementResult(distance_mm,requested_digit,geometry,tuple(numbered),selected,selected.geometry.x_mm)
+
+def measure_numbered(rectified_a4:np.ndarray,requested_digit:int,distance_mm:float|None=None,recognizer:HogSvmDigitRecognizer|None=None)->NumberedMeasurementResult:
+    return _recognize_numbered_squares(
+        rectified_a4,
+        measure(rectified_a4),
+        requested_digit,
+        distance_mm,
+        recognizer,
+    )
+
+def measure_normal_low_resolution(
+    rectified_frames: tuple[np.ndarray, ...] | list[np.ndarray],
+    distance_mm: float | None = None,
+) -> NormalMeasurementResult:
+    geometry = measure_low_resolution(rectified_frames)
+    selected = _select_normal_shape(geometry)
+    return NormalMeasurementResult(distance_mm, geometry, selected, selected.x_mm)
+
+def measure_numbered_low_resolution(
+    rectified_frames: tuple[np.ndarray, ...] | list[np.ndarray],
+    requested_digit: int,
+    distance_mm: float | None = None,
+    recognizer: HogSvmDigitRecognizer | None = None,
+) -> NumberedMeasurementResult:
+    geometry = measure_low_resolution(rectified_frames)
+    if geometry.measurement_image is None:
+        raise ValueError("低分辨率测量缺少融合后的A4图像")
+    return _recognize_numbered_squares(
+        geometry.measurement_image,
+        geometry,
+        requested_digit,
+        distance_mm,
+        recognizer,
+    )

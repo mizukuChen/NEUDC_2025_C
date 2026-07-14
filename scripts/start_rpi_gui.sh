@@ -24,6 +24,6 @@ cd "${ROOT_DIR}"
 printf '\n[%s] starting NUEDC vision GUI\n' "$(date '+%Y-%m-%d %H:%M:%S')" >>"${LOG_FILE}"
 exec "${PYTHON}" -m src.main \
     --camera-index 0 \
-    --width 1280 \
-    --height 720 \
+    --width 1920 \
+    --height 1080 \
     "$@" >>"${LOG_FILE}" 2>&1
