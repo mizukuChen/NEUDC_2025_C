@@ -179,7 +179,7 @@ class MeasurementApplication:
             raise ValueError("frame_count must be at least 1.")
         if warmup_frames < 0:
             raise ValueError("warmup_frames must not be negative.")
-        cap = cv2.VideoCapture(camera_index)
+        cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
         if not cap.isOpened():
             cap.release()
             raise RuntimeError("找不到camera")

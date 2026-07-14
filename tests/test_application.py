@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import cv2
 import numpy as np
 
 from src.application import (
@@ -39,13 +40,14 @@ class ApplicationPresentationTest(unittest.TestCase):
         capture.grab.return_value = True
         frames = [np.full((8, 12, 3), value, dtype=np.uint8) for value in (1, 2, 3)]
         capture.read.side_effect = [(True, frame) for frame in frames]
-        with patch("src.application.cv2.VideoCapture", return_value=capture):
+        with patch("src.application.cv2.VideoCapture", return_value=capture) as video_capture:
             actual = MeasurementApplication.capture_frames(warmup_frames=2)
         self.assertEqual(len(actual), 3)
         np.testing.assert_array_equal(actual[-1], frames[-1])
         self.assertEqual(capture.grab.call_count, 2)
         self.assertEqual(capture.read.call_count, 3)
         capture.release.assert_called_once()
+        video_capture.assert_called_once_with(0, cv2.CAP_V4L2)
 
     def test_camera_frames_route_to_low_resolution_measurement(self) -> None:
         application = MeasurementApplication()
