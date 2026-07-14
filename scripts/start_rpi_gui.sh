@@ -5,7 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${ROOT_DIR}/.venv/bin/python"
 LOG_DIR="${ROOT_DIR}/runtime/logs"
 LOG_FILE="${LOG_DIR}/gui.log"
-LOCK_FILE="${ROOT_DIR}/runtime/gui.lock"
+LOCK_FILE="${LOG_DIR}/gui.lock"
 
 mkdir -p "${LOG_DIR}"
 if [[ ! -x "${PYTHON}" ]]; then
