@@ -78,6 +78,20 @@ class MeasurementGui:
         )
         self.entry.pack(side=tk.LEFT)
 
+        digit_pad = ttk.Frame(controls)
+        digit_pad.pack(fill=tk.X, pady=(2, 8))
+        self.digit_buttons = []
+        for digit in range(10):
+            button = ttk.Button(
+                digit_pad,
+                text=str(digit),
+                width=3,
+                command=lambda value=digit: self._select_digit(value),
+            )
+            button.grid(row=digit // 5, column=digit % 5, padx=2, pady=2, sticky="ew")
+            digit_pad.columnconfigure(digit % 5, weight=1)
+            self.digit_buttons.append(button)
+
         self.camera_button = ttk.Button(
             controls, text="相机测量", command=self.measure_camera
         )
@@ -131,7 +145,18 @@ class MeasurementGui:
         self.status.configure(state=tk.DISABLED)
 
     def _sync_mode(self) -> None:
-        self.entry.configure(state="normal" if self.mode.get() == "numbered" else "disabled")
+        state = "normal" if self.mode.get() == "numbered" else "disabled"
+        self.entry.configure(state=state)
+        for button in self.digit_buttons:
+            button.configure(state=state)
+        if state == "normal":
+            self.entry.focus_set()
+            self.entry.selection_range(0, "end")
+
+    def _select_digit(self, digit: int) -> None:
+        self.digit.set(str(digit))
+        self.entry.focus_set()
+        self.entry.selection_range(0, "end")
 
     def _clear_views(self) -> None:
         self._photos.clear()
