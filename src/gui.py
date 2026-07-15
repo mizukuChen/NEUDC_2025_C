@@ -347,20 +347,26 @@ def main() -> int:
     args = parser.parse_args()
     try:
         import tkinter as tk
+        from tkinter import messagebox
     except ImportError as exc:
         raise SystemExit("缺少 Tkinter，请安装系统包 python3-tk") from exc
     root = tk.Tk()
-    MeasurementGui(
-        root,
-        MeasurementApplication(
-            args.fisheye_calibration,
-            args.distance_calibration,
-            args.strip_fraction,
-        ),
-        args.camera_index,
-        args.width,
-        args.height,
-    )
+    try:
+        MeasurementGui(
+            root,
+            MeasurementApplication(
+                args.fisheye_calibration,
+                args.distance_calibration,
+                args.strip_fraction,
+            ),
+            args.camera_index,
+            args.width,
+            args.height,
+        )
+    except Exception as exc:
+        messagebox.showerror("测量软件启动失败", str(exc))
+        root.destroy()
+        return 1
     root.mainloop()
     return 0
 

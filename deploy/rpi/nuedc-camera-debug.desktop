@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=电赛相机环境调试
+Comment=调整曝光、增益、亮度和对比度并保存测量配置
+Exec=/home/nailong/NUEDC_2025_C/scripts/start_camera_debug.sh
+Path=/home/nailong/NUEDC_2025_C
+Icon=camera-photo
+Terminal=false
+Categories=Science;
+StartupNotify=true

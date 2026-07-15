@@ -34,6 +34,14 @@ from src.vision.measurement_tasks import (
 )
 from src.vision.rectify import rectify_a4
 from src.vision.target_plane import find_target_plane
+from src.camera_settings import (
+    DEFAULT_CAMERA_SETTINGS_PATH,
+    CameraDeviceLock,
+    CameraSettings,
+    apply_camera_controls,
+    device_path,
+    load_camera_settings,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -193,14 +201,19 @@ def _configure_measurement_camera(
     capture,
     width: int,
     height: int,
-    brightness: float,
+    settings: CameraSettings,
+    camera_device: str | None = None,
 ) -> None:
     capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUYV"))
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     capture.set(cv2.CAP_PROP_FPS, 5)
-    capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
-    capture.set(cv2.CAP_PROP_BRIGHTNESS, brightness)
+    actual_device = (
+        camera_device
+        if type(capture).__module__.split(".", 1)[0] == "cv2"
+        else None
+    )
+    apply_camera_controls(capture, settings, actual_device)
 
 
 class CameraFrameBuffer:
@@ -213,7 +226,7 @@ class CameraFrameBuffer:
         height: int,
         frame_count: int = 3,
         warmup_frames: int = 20,
-        brightness: float = -20.0,
+        settings: CameraSettings | None = None,
     ) -> None:
         if frame_count < 1:
             raise ValueError("frame_count must be at least 1.")
@@ -222,7 +235,7 @@ class CameraFrameBuffer:
         self.height = height
         self.frame_count = frame_count
         self.warmup_frames = warmup_frames
-        self.brightness = brightness
+        self.settings = settings or CameraSettings()
         self._frames: deque[np.ndarray] = deque(maxlen=frame_count)
         self._condition = threading.Condition()
         self._stop = threading.Event()
@@ -275,7 +288,8 @@ class CameraFrameBuffer:
                     capture,
                     self.width,
                     self.height,
-                    self.brightness,
+                    self.settings,
+                    device_path(self.camera_index),
                 )
                 healthy = True
                 for _ in range(self.warmup_frames):
@@ -295,6 +309,8 @@ class CameraFrameBuffer:
                         self._frames.append(frame)
                         self._error = None
                         self._condition.notify_all()
+            except Exception as exc:
+                self._set_error(str(exc))
             finally:
                 capture.release()
             if not self._stop.is_set():
@@ -308,6 +324,7 @@ class MeasurementApplication:
         distance_path: Path = DEFAULT_DISTANCE,
         strip_fraction: float = 1 / 3,
         max_reprojection_px: float = 2.0,
+        camera_settings_path: Path = DEFAULT_CAMERA_SETTINGS_PATH,
     ) -> None:
         if not 0 < strip_fraction <= 1:
             raise ValueError("strip_fraction must be in (0, 1].")
@@ -315,9 +332,11 @@ class MeasurementApplication:
         self.distance_path = Path(distance_path)
         self.strip_fraction = strip_fraction
         self.max_reprojection_px = max_reprojection_px
+        self.camera_settings_path = Path(camera_settings_path)
         self._fisheye = None
         self._correction = None
         self._camera_buffer: CameraFrameBuffer | None = None
+        self._camera_lock = CameraDeviceLock()
         self._undistortion_cache: dict[
             tuple[int, int],
             tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
@@ -453,7 +472,7 @@ class MeasurementApplication:
         height: int = 1080,
         frame_count: int = 3,
         warmup_frames: int = 20,
-        brightness: float = -20.0,
+        settings: CameraSettings | None = None,
     ) -> tuple[np.ndarray, ...]:
         """用树莓派已验证的YUYV参数采集用于融合测量的稳定帧。"""
         if frame_count < 1:
@@ -466,7 +485,13 @@ class MeasurementApplication:
             raise RuntimeError("找不到camera")
         frames: list[np.ndarray] = []
         try:
-            _configure_measurement_camera(cap, width, height, brightness)
+            _configure_measurement_camera(
+                cap,
+                width,
+                height,
+                settings or load_camera_settings(),
+                device_path(camera_index),
+            )
             for _ in range(warmup_frames):
                 if not cap.grab():
                     raise RuntimeError("找不到camera")
@@ -488,15 +513,27 @@ class MeasurementApplication:
         """在GUI启动时异步预热相机；重复调用不会重复创建线程。"""
         if self._camera_buffer is not None:
             return
-        fisheye, _ = self._load()
-        self._camera_undistortion_maps(fisheye, (width, height))
-        self._camera_buffer = CameraFrameBuffer(camera_index, width, height)
-        self._camera_buffer.start()
+        self._camera_lock.acquire()
+        try:
+            fisheye, _ = self._load()
+            self._camera_undistortion_maps(fisheye, (width, height))
+            self._camera_buffer = CameraFrameBuffer(
+                camera_index,
+                width,
+                height,
+                settings=load_camera_settings(self.camera_settings_path),
+            )
+            self._camera_buffer.start()
+        except Exception:
+            self._camera_buffer = None
+            self._camera_lock.release()
+            raise
 
     def stop_camera(self) -> None:
         if self._camera_buffer is not None:
             self._camera_buffer.stop()
             self._camera_buffer = None
+        self._camera_lock.release()
 
     def buffered_camera_frames(self, timeout_s: float = 6.0) -> tuple[np.ndarray, ...]:
         if self._camera_buffer is None:
