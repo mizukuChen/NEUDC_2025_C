@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from itertools import combinations
 from math import atan2, degrees, hypot
@@ -455,11 +456,19 @@ def reconstruct_low_resolution_squares(
 ) -> LowResolutionOverlapResult:
     """逐帧宽松生成候选，再在融合图上严格验证重叠正方形。"""
     prepared = prepare_low_resolution_a4(frames)
-    fused_candidates, edge_full, fused_line_count = _extract_candidates(prepared)
+    frame_list = list(frames)
+
+    def extract_frame(frame: np.ndarray):
+        return _extract_candidates(prepare_low_resolution_a4([frame]))
+
+    # 四次LSD互不依赖：融合图留在主线程，三张单帧同时使用其余CPU核心。
+    with ThreadPoolExecutor(max_workers=max(1, min(3, len(frame_list)))) as executor:
+        frame_futures = [executor.submit(extract_frame, frame) for frame in frame_list]
+        fused_candidates, edge_full, fused_line_count = _extract_candidates(prepared)
+        frame_results = [future.result() for future in frame_futures]
+
     sources = [(0, candidate) for candidate in fused_candidates]
-    for source_index, frame in enumerate(frames, 1):
-        frame_prepared = prepare_low_resolution_a4([frame])
-        frame_candidates, _, _ = _extract_candidates(frame_prepared)
+    for source_index, (frame_candidates, _, _) in enumerate(frame_results, 1):
         sources.extend((source_index, candidate) for candidate in frame_candidates)
 
     groups: list[tuple[list[LowResolutionSquare], set[int]]] = []
