@@ -34,6 +34,7 @@ class MeasurementGui:
         self.width = width
         self.height = height
         self._photos: dict[str, object] = {}
+        self._pending_views: dict[str, object] = {}
         self._busy = False
 
         root.title("2025 电赛 C 题视觉测量")
@@ -132,9 +133,12 @@ class MeasurementGui:
             self.notebook.add(frame, text=title)
             self.tab_frames[title] = frame
             self.image_labels[title] = label
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         self._set_status("请选择识别模式，然后开始测量。")
         self._sync_mode()
+        self.application.start_camera(camera_index, width, height)
+        root.protocol("WM_DELETE_WINDOW", self._close)
 
     def _set_status(self, message: str) -> None:
         import tkinter as tk
@@ -160,6 +164,7 @@ class MeasurementGui:
 
     def _clear_views(self) -> None:
         self._photos.clear()
+        self._pending_views.clear()
         for label in self.image_labels.values():
             label.configure(image="", text="等待图像")
 
@@ -171,7 +176,7 @@ class MeasurementGui:
         else:
             rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(rgb)
-        image.thumbnail((680, 500), Image.Resampling.LANCZOS)
+        image.thumbnail((680, 500), Image.Resampling.BILINEAR)
         photo = ImageTk.PhotoImage(image)
         self._photos[title] = photo
         self.image_labels[title].configure(image=photo, text="")
@@ -192,7 +197,7 @@ class MeasurementGui:
         self.camera_button.configure(state="disabled")
         self.file_button.configure(state="disabled")
         self._clear_views()
-        self._set_status("正在采集三帧相机图像……" if camera_input else "正在获取输入图像……")
+        self._set_status("正在读取相机缓存……" if camera_input else "正在获取输入图像……")
 
         def worker() -> None:
             try:
@@ -212,15 +217,12 @@ class MeasurementGui:
         threading.Thread(target=worker, daemon=True).start()
 
     def _input_ready(self, raw) -> None:
-        self._show_image(VIEW_INPUT, raw)
-        self.notebook.select(self.tab_frames[VIEW_INPUT])
+        self._pending_views[VIEW_INPUT] = raw
         self._set_status("已获取输入图像，正在定位 A4 并识别目标……")
 
     def measure_camera(self) -> None:
         self._start(
-            lambda: self.application.capture_frames(
-                self.camera_index, self.width, self.height
-            ),
+            self.application.buffered_camera_frames,
             camera_input=True,
         )
 
@@ -259,12 +261,29 @@ class MeasurementGui:
 
     def _success(self, result) -> None:
         self._idle()
-        self._show_image(VIEW_INPUT, result.input_image)
-        self._show_image(VIEW_LOCATION, result.located_a4)
-        self._show_image(VIEW_RECTIFIED, result.rectified_a4)
+        self._pending_views.update(
+            {
+                VIEW_INPUT: result.input_image,
+                VIEW_LOCATION: result.located_a4,
+                VIEW_RECTIFIED: result.rectified_a4,
+            }
+        )
         self._show_image(VIEW_RESULT, result.annotated_a4)
         self.notebook.select(self.tab_frames[VIEW_RESULT])
         self._set_status(result.summary)
+
+    def _on_tab_changed(self, _event=None) -> None:
+        selected = self.notebook.select()
+        if not selected:
+            return
+        title = self.notebook.tab(selected, "text")
+        image = self._pending_views.pop(title, None)
+        if image is not None and title not in self._photos:
+            self._show_image(title, image)
+
+    def _close(self) -> None:
+        self.application.stop_camera()
+        self.root.destroy()
 
 
 def main() -> int:

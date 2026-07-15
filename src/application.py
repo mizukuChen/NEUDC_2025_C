@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
+import threading
+import time
 
 import cv2
 import numpy as np
@@ -157,6 +160,118 @@ def _draw_a4_location(image: np.ndarray, corners: np.ndarray) -> np.ndarray:
     return debug
 
 
+def _configure_measurement_camera(
+    capture,
+    width: int,
+    height: int,
+    brightness: float,
+) -> None:
+    capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUYV"))
+    capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    capture.set(cv2.CAP_PROP_FPS, 5)
+    capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+    capture.set(cv2.CAP_PROP_BRIGHTNESS, brightness)
+
+
+class CameraFrameBuffer:
+    """常驻V4L2相机线程，持续保存最新的三张稳定帧。"""
+
+    def __init__(
+        self,
+        camera_index: int,
+        width: int,
+        height: int,
+        frame_count: int = 3,
+        warmup_frames: int = 20,
+        brightness: float = -20.0,
+    ) -> None:
+        if frame_count < 1:
+            raise ValueError("frame_count must be at least 1.")
+        self.camera_index = camera_index
+        self.width = width
+        self.height = height
+        self.frame_count = frame_count
+        self.warmup_frames = warmup_frames
+        self.brightness = brightness
+        self._frames: deque[np.ndarray] = deque(maxlen=frame_count)
+        self._condition = threading.Condition()
+        self._stop = threading.Event()
+        self._error: str | None = None
+        self._thread = threading.Thread(
+            target=self._run,
+            name="camera-frame-buffer",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        if not self._thread.is_alive():
+            self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        with self._condition:
+            self._condition.notify_all()
+        if self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+
+    def frames(self, timeout_s: float = 3.0) -> tuple[np.ndarray, ...]:
+        deadline = time.monotonic() + timeout_s
+        with self._condition:
+            while len(self._frames) < self.frame_count and not self._stop.is_set():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._condition.wait(remaining)
+            if len(self._frames) < self.frame_count:
+                raise RuntimeError(self._error or "找不到camera")
+            return tuple(self._frames)
+
+    def _set_error(self, message: str) -> None:
+        with self._condition:
+            self._frames.clear()
+            self._error = message
+            self._condition.notify_all()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            capture = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)
+            if not capture.isOpened():
+                capture.release()
+                self._set_error("找不到camera")
+                self._stop.wait(0.5)
+                continue
+            try:
+                _configure_measurement_camera(
+                    capture,
+                    self.width,
+                    self.height,
+                    self.brightness,
+                )
+                healthy = True
+                for _ in range(self.warmup_frames):
+                    if self._stop.is_set():
+                        healthy = False
+                        break
+                    if not capture.grab():
+                        self._set_error("找不到camera")
+                        healthy = False
+                        break
+                while healthy and not self._stop.is_set():
+                    ok, frame = capture.read()
+                    if not ok or frame is None:
+                        self._set_error("找不到camera")
+                        break
+                    with self._condition:
+                        self._frames.append(frame)
+                        self._error = None
+                        self._condition.notify_all()
+            finally:
+                capture.release()
+            if not self._stop.is_set():
+                self._stop.wait(0.5)
+
+
 class MeasurementApplication:
     def __init__(
         self,
@@ -173,6 +288,11 @@ class MeasurementApplication:
         self.max_reprojection_px = max_reprojection_px
         self._fisheye = None
         self._correction = None
+        self._camera_buffer: CameraFrameBuffer | None = None
+        self._undistortion_cache: dict[
+            tuple[int, int],
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        ] = {}
 
     def _load(self):
         if self._fisheye is None:
@@ -185,6 +305,99 @@ class MeasurementApplication:
                 else None
             )
         return self._fisheye, self._correction
+
+    def _camera_undistortion_maps(
+        self,
+        fisheye,
+        image_size: tuple[int, int],
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """缓存全分辨率定点映射、浮点映射和去畸变后内参。"""
+        cached = self._undistortion_cache.get(image_size)
+        if cached is not None:
+            return cached
+        width, height = image_size
+        source_width, source_height = fisheye.image_size
+        scale_x = width / source_width
+        scale_y = height / source_height
+        if abs(scale_x - scale_y) > 1e-6:
+            raise ValueError("Input aspect ratio does not match the fisheye calibration.")
+        camera_matrix = fisheye.camera_matrix.copy()
+        camera_matrix[0, 0] *= scale_x
+        camera_matrix[1, 1] *= scale_y
+        camera_matrix[0, 2] *= scale_x
+        camera_matrix[1, 2] *= scale_y
+        new_camera_matrix = undistorted_camera_matrix(fisheye, image_size)
+        map_x, map_y = cv2.fisheye.initUndistortRectifyMap(
+            camera_matrix,
+            fisheye.distortion,
+            np.eye(3),
+            new_camera_matrix,
+            image_size,
+            cv2.CV_32FC1,
+        )
+        fixed_map, interpolation_map = cv2.convertMaps(
+            map_x,
+            map_y,
+            cv2.CV_16SC2,
+        )
+        cached = (
+            fixed_map,
+            interpolation_map,
+            map_x,
+            map_y,
+            new_camera_matrix,
+        )
+        self._undistortion_cache[image_size] = cached
+        return cached
+
+    @staticmethod
+    def _direct_rectify_frames(
+        frames: list[np.ndarray],
+        full_corners: np.ndarray,
+        map_x: np.ndarray,
+        map_y: np.ndarray,
+    ) -> list[np.ndarray]:
+        """组合鱼眼映射与透视变换，原始帧直接输出420×594 A4。"""
+        destination = np.asarray(
+            [
+                [0, 0],
+                [WORK_WIDTH_PX - 1, 0],
+                [WORK_WIDTH_PX - 1, WORK_HEIGHT_PX - 1],
+                [0, WORK_HEIGHT_PX - 1],
+            ],
+            dtype=np.float32,
+        )
+        transform = cv2.getPerspectiveTransform(
+            np.asarray(full_corners, dtype=np.float32),
+            destination,
+        )
+        size = (WORK_WIDTH_PX, WORK_HEIGHT_PX)
+        direct_x = cv2.warpPerspective(
+            map_x,
+            transform,
+            size,
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=-1,
+        )
+        direct_y = cv2.warpPerspective(
+            map_y,
+            transform,
+            size,
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=-1,
+        )
+        return [
+            cv2.remap(
+                frame,
+                direct_x,
+                direct_y,
+                interpolation=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+            )
+            for frame in frames
+        ]
 
     @staticmethod
     def capture_frame(camera_index: int = 0, width: int = 1280, height: int = 720) -> np.ndarray:
@@ -224,12 +437,7 @@ class MeasurementApplication:
             raise RuntimeError("找不到camera")
         frames: list[np.ndarray] = []
         try:
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUYV"))
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-            cap.set(cv2.CAP_PROP_FPS, 5)
-            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
-            cap.set(cv2.CAP_PROP_BRIGHTNESS, brightness)
+            _configure_measurement_camera(cap, width, height, brightness)
             for _ in range(warmup_frames):
                 if not cap.grab():
                     raise RuntimeError("找不到camera")
@@ -241,6 +449,30 @@ class MeasurementApplication:
         finally:
             cap.release()
         return tuple(frames)
+
+    def start_camera(
+        self,
+        camera_index: int = 0,
+        width: int = 1920,
+        height: int = 1080,
+    ) -> None:
+        """在GUI启动时异步预热相机；重复调用不会重复创建线程。"""
+        if self._camera_buffer is not None:
+            return
+        fisheye, _ = self._load()
+        self._camera_undistortion_maps(fisheye, (width, height))
+        self._camera_buffer = CameraFrameBuffer(camera_index, width, height)
+        self._camera_buffer.start()
+
+    def stop_camera(self) -> None:
+        if self._camera_buffer is not None:
+            self._camera_buffer.stop()
+            self._camera_buffer = None
+
+    def buffered_camera_frames(self, timeout_s: float = 6.0) -> tuple[np.ndarray, ...]:
+        if self._camera_buffer is None:
+            raise RuntimeError("找不到camera")
+        return self._camera_buffer.frames(timeout_s)
 
     def process_raw(self, raw: np.ndarray, mode: str, digit: int | None = None) -> ApplicationResult:
         if raw is None or raw.size == 0:
@@ -322,29 +554,32 @@ class MeasurementApplication:
             raise ValueError("数字识别模式必须输入 0～9")
 
         fisheye, correction = self._load()
-        undistorted_frames: list[np.ndarray] = []
-        rectified_frames: list[np.ndarray] = []
-        full_corners_per_frame: list[np.ndarray] = []
-        for raw in arrays:
-            undistorted = undistort_fisheye_image(raw, fisheye)
-            height, width = undistorted.shape[:2]
-            strip_width = round(width * self.strip_fraction)
-            left = (width - strip_width) // 2
-            strip = undistorted[:, left : left + strip_width]
-            plane = find_target_plane(strip)
-            full_corners = plane.corners.astype(np.float64)
-            full_corners[:, 0] += left
-            undistorted_frames.append(undistorted)
-            full_corners_per_frame.append(full_corners)
-            rectified_frames.append(
-                rectify_a4(strip, plane.corners, WORK_WIDTH_PX, WORK_HEIGHT_PX)
-            )
-
-        height, width = undistorted_frames[-1].shape[:2]
-        median_corners = np.median(np.stack(full_corners_per_frame), axis=0)
+        height, width = arrays[-1].shape[:2]
+        fixed_map, interpolation_map, map_x, map_y, camera_matrix = (
+            self._camera_undistortion_maps(fisheye, (width, height))
+        )
+        undistorted_latest = cv2.remap(
+            arrays[-1],
+            fixed_map,
+            interpolation_map,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+        )
+        strip_width = round(width * self.strip_fraction)
+        left = (width - strip_width) // 2
+        strip = undistorted_latest[:, left : left + strip_width]
+        plane = find_target_plane(strip)
+        full_corners = plane.corners.astype(np.float64)
+        full_corners[:, 0] += left
+        rectified_frames = self._direct_rectify_frames(
+            arrays,
+            full_corners,
+            map_x,
+            map_y,
+        )
         distance = estimate_plane_center_depth(
-            median_corners,
-            undistorted_camera_matrix(fisheye, (width, height)),
+            full_corners,
+            camera_matrix,
             correction,
         )
         if distance.reprojection_error_px > self.max_reprojection_px:
@@ -387,7 +622,7 @@ class MeasurementApplication:
             reprojection_error_px=distance.reprojection_error_px,
             summary=summary,
             input_image=arrays[-1].copy(),
-            located_a4=_draw_a4_location(undistorted_frames[-1], median_corners),
+            located_a4=_draw_a4_location(undistorted_latest, full_corners),
             rectified_a4=measurement_image,
             annotated_a4=draw_measurements(
                 measurement_image,

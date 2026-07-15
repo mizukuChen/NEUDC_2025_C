@@ -244,8 +244,9 @@ def find_target_plane(image: np.ndarray) -> TargetPlane:
             },
         ),
     )
-    for strong_perspective, parameters in attempts:
-        for x, y, width, height in _candidate_regions(image):
+    # 每个区域先常规、再强透视；全局强透视成功时无需等待全部局部常规尝试失败。
+    for x, y, width, height in _candidate_regions(image):
+        for strong_perspective, parameters in attempts:
             crop = image[y : y + height, x : x + width]
             try:
                 plane = _find_target_plane_once(crop, **parameters)

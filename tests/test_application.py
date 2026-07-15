@@ -8,15 +8,89 @@ import cv2
 import numpy as np
 
 from src.application import (
+    CameraFrameBuffer,
     MeasurementApplication,
     _draw_a4_location,
     _normal_summary,
 )
 from src.vision.measure import Measurement, MeasurementResult
 from src.vision.measurement_tasks import NormalMeasurementResult
+from src.vision.fisheye import FisheyeCalibration
+from src.vision.rectify import rectify_a4
 
 
 class ApplicationPresentationTest(unittest.TestCase):
+    def test_persistent_camera_buffer_returns_three_frames(self) -> None:
+        capture = Mock()
+        capture.isOpened.return_value = True
+        capture.grab.return_value = True
+        counter = 0
+
+        def read():
+            nonlocal counter
+            counter += 1
+            return True, np.full((8, 12, 3), counter % 255, dtype=np.uint8)
+
+        capture.read.side_effect = read
+        with patch("src.application.cv2.VideoCapture", return_value=capture):
+            buffer = CameraFrameBuffer(0, 1920, 1080, warmup_frames=0)
+            buffer.start()
+            frames = buffer.frames(timeout_s=1.0)
+            buffer.stop()
+
+        self.assertEqual(len(frames), 3)
+        self.assertTrue(all(frame.shape == (8, 12, 3) for frame in frames))
+        capture.release.assert_called()
+
+    def test_direct_rectification_matches_two_step_pipeline(self) -> None:
+        width, height = 160, 120
+        calibration = FisheyeCalibration(
+            camera_matrix=np.asarray(
+                [[105.0, 0.0, 80.0], [0.0, 105.0, 60.0], [0.0, 0.0, 1.0]],
+                dtype=np.float64,
+            ),
+            distortion=np.asarray([-0.03, 0.004, 0.0, 0.0], dtype=np.float64).reshape(4, 1),
+            image_size=(width, height),
+            rms_px=0.1,
+            used_images=(),
+            rejected_images=(),
+            pattern_size=(8, 12),
+            square_size_mm=29.0,
+        )
+        yy, xx = np.indices((height, width))
+        raw = np.dstack(
+            [
+                (xx * 255 // width).astype(np.uint8),
+                (yy * 255 // height).astype(np.uint8),
+                ((xx + yy) * 255 // (width + height)).astype(np.uint8),
+            ]
+        )
+        corners = np.asarray(
+            [[42, 18], [120, 20], [126, 102], [35, 100]],
+            dtype=np.float64,
+        )
+        application = MeasurementApplication()
+        fixed, interpolation, map_x, map_y, _ = application._camera_undistortion_maps(
+            calibration,
+            (width, height),
+        )
+        undistorted = cv2.remap(raw, fixed, interpolation, cv2.INTER_LINEAR)
+        expected = rectify_a4(undistorted, corners, 420, 594)
+        actual = application._direct_rectify_frames(
+            [raw],
+            corners,
+            map_x,
+            map_y,
+        )[0]
+        difference = np.mean(
+            np.abs(expected.astype(np.int16) - actual.astype(np.int16))
+        )
+        self.assertLess(float(difference), 3.0)
+        self.assertIs(
+            application._camera_undistortion_maps(calibration, (width, height))[0],
+            fixed,
+        )
+
     def test_missing_camera_has_required_message(self) -> None:
         capture = Mock()
         capture.isOpened.return_value = False
@@ -68,16 +142,24 @@ class ApplicationPresentationTest(unittest.TestCase):
         )
 
         with (
-            patch("src.application.undistort_fisheye_image", side_effect=lambda image, _: image),
+            patch.object(
+                application,
+                "_camera_undistortion_maps",
+                return_value=(None, None, None, None, np.eye(3)),
+            ),
+            patch("src.application.cv2.remap", side_effect=lambda image, *_args, **_kwargs: image),
             patch("src.application.find_target_plane", return_value=plane),
-            patch("src.application.rectify_a4", return_value=work_image) as rectify,
-            patch("src.application.undistorted_camera_matrix", return_value=np.eye(3)),
+            patch.object(
+                application,
+                "_direct_rectify_frames",
+                return_value=[work_image, work_image, work_image],
+            ) as direct_rectify,
             patch("src.application.estimate_plane_center_depth", return_value=distance),
             patch("src.application.measure_normal_low_resolution", return_value=task) as measure,
         ):
             result = application.process_camera_frames(raw_frames, "normal")
 
-        self.assertEqual(rectify.call_count, 3)
+        direct_rectify.assert_called_once()
         self.assertEqual(len(measure.call_args.args[0]), 3)
         self.assertIsNone(measure.call_args.args[1])
         self.assertEqual(result.x_mm, 60.0)
