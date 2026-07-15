@@ -42,13 +42,15 @@ class SilentRecognitionTest(unittest.TestCase):
 
     def test_stable_scene_is_recognized_once_and_returned_from_cache(self) -> None:
         frames = tuple(np.full((8, 12, 3), value, dtype=np.uint8) for value in (1, 2, 3))
+        analysis = object()
         expected = SimpleNamespace(summary="cached")
         application = Mock()
         application.buffered_camera_frames.side_effect = lambda **_kwargs: tuple(
             frame.copy() for frame in frames
         )
         application.probe_camera_frame.return_value = signature()
-        application.process_camera_frames.return_value = expected
+        application.analyze_camera_frames.return_value = analysis
+        application.result_from_camera_analysis.return_value = expected
         manager = SilentRecognitionManager(application, stable_observations=3)
         manager.set_request("normal")
 
@@ -59,32 +61,57 @@ class SilentRecognitionTest(unittest.TestCase):
 
         self.assertIs(manager.cached_result("normal"), expected)
         self.assertIs(manager.measure("normal"), expected)
-        self.assertEqual(application.process_camera_frames.call_count, 1)
-        self.assertEqual(application.process_camera_frames.call_args.args[1:], ("normal", None))
+        application.analyze_camera_frames.assert_called_once()
+        application.process_camera_frames.assert_not_called()
 
     def test_same_camera_frame_is_not_counted_twice(self) -> None:
         frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
         application = Mock()
         application.buffered_camera_frames.return_value = frames
         application.probe_camera_frame.return_value = signature()
-        application.process_camera_frames.return_value = object()
+        application.analyze_camera_frames.return_value = object()
         manager = SilentRecognitionManager(application, stable_observations=2)
 
         manager.poll_once()
         manager.poll_once()
 
+        application.analyze_camera_frames.assert_not_called()
+
+    def test_mode_and_digit_changes_reuse_one_scene_analysis(self) -> None:
+        frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
+        analysis = object()
+        application = Mock()
+        application.buffered_camera_frames.side_effect = lambda **_kwargs: tuple(
+            frame.copy() for frame in frames
+        )
+        application.probe_camera_frame.return_value = signature()
+        application.analyze_camera_frames.return_value = analysis
+        application.result_from_camera_analysis.side_effect = (
+            lambda _analysis, mode, digit=None: (mode, digit)
+        )
+        manager = SilentRecognitionManager(application, stable_observations=1)
+        manager.poll_once()
+
+        self.assertEqual(manager.measure("normal"), ("normal", None))
+        self.assertEqual(manager.measure("numbered", 3), ("numbered", 3))
+        self.assertEqual(manager.measure("numbered", 4), ("numbered", 4))
+
+        application.analyze_camera_frames.assert_called_once()
         application.process_camera_frames.assert_not_called()
 
     def test_button_revalidates_cached_scene_before_returning(self) -> None:
         frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
         cached = object()
         direct = object()
+        analysis = object()
         application = Mock()
         application.buffered_camera_frames.side_effect = lambda **_kwargs: tuple(
             frame.copy() for frame in frames
         )
         application.probe_camera_frame.return_value = signature()
-        application.process_camera_frames.side_effect = [cached, direct]
+        application.analyze_camera_frames.return_value = analysis
+        application.result_from_camera_analysis.return_value = cached
+        application.process_camera_frames.return_value = direct
         manager = SilentRecognitionManager(application, stable_observations=1)
         manager.poll_once()
         self.assertIs(manager.cached_result("normal"), cached)
@@ -94,17 +121,20 @@ class SilentRecognitionTest(unittest.TestCase):
             signature().content_mask,
         )
         self.assertIs(manager.measure("normal"), direct)
-        self.assertEqual(application.process_camera_frames.call_count, 2)
+        application.analyze_camera_frames.assert_called_once()
+        application.process_camera_frames.assert_called_once()
 
     def test_first_miss_blocks_cache_and_second_miss_clears_it(self) -> None:
         frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
         expected = object()
+        analysis = object()
         application = Mock()
         application.buffered_camera_frames.side_effect = lambda **_kwargs: tuple(
             frame.copy() for frame in frames
         )
         application.probe_camera_frame.return_value = signature()
-        application.process_camera_frames.return_value = expected
+        application.analyze_camera_frames.return_value = analysis
+        application.result_from_camera_analysis.return_value = expected
         manager = SilentRecognitionManager(
             application,
             stable_observations=1,
@@ -121,7 +151,7 @@ class SilentRecognitionTest(unittest.TestCase):
         application.probe_camera_frame.side_effect = None
         application.probe_camera_frame.return_value = signature()
         manager.poll_once()
-        self.assertEqual(application.process_camera_frames.call_count, 2)
+        self.assertEqual(application.analyze_camera_frames.call_count, 2)
 
     def test_disabled_mode_uses_original_measurement_directly(self) -> None:
         frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))

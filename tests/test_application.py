@@ -131,7 +131,6 @@ class ApplicationPresentationTest(unittest.TestCase):
         work_image = np.full((594, 420, 3), 240, dtype=np.uint8)
         shape = Measurement("square", 60.0, (105.0, 148.5), 0.0, 0.9, "overlap_lowres")
         geometry = MeasurementResult((shape,), "overlap", 2.0, 0.8, work_image)
-        task = NormalMeasurementResult(None, geometry, shape, shape.x_mm)
         plane = SimpleNamespace(
             corners=np.asarray([[10, 10], [50, 10], [50, 100], [10, 100]], dtype=np.float32)
         )
@@ -155,13 +154,12 @@ class ApplicationPresentationTest(unittest.TestCase):
                 return_value=[work_image, work_image, work_image],
             ) as direct_rectify,
             patch("src.application.estimate_plane_center_depth", return_value=distance),
-            patch("src.application.measure_normal_low_resolution", return_value=task) as measure,
+            patch("src.application.measure_low_resolution", return_value=geometry) as measure,
         ):
             result = application.process_camera_frames(raw_frames, "normal")
 
         direct_rectify.assert_called_once()
         self.assertEqual(len(measure.call_args.args[0]), 3)
-        self.assertIsNone(measure.call_args.args[1])
         self.assertEqual(result.x_mm, 60.0)
         self.assertIsNone(result.distance_mm)
         self.assertIn("发挥（4）倾斜物面", result.summary)

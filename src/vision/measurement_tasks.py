@@ -41,9 +41,70 @@ def _select_normal_shape(geometry: MeasurementResult)->Measurement:
     if not all(x.shape_type=="square" for x in geometry.shapes):raise ValueError("A multi-target normal measurement must contain only squares.")
     return min(geometry.shapes,key=lambda x:x.x_mm)
 
+def normal_measurement_from_geometry(
+    geometry: MeasurementResult,
+    distance_mm: float | None = None,
+) -> NormalMeasurementResult:
+    """直接从已完成的场景几何结果生成普通测量输出。"""
+    selected = _select_normal_shape(geometry)
+    return NormalMeasurementResult(distance_mm, geometry, selected, selected.x_mm)
+
 def measure_normal(rectified_a4:np.ndarray,distance_mm:float|None=None)->NormalMeasurementResult:
-    geometry=measure(rectified_a4); selected=_select_normal_shape(geometry)
-    return NormalMeasurementResult(distance_mm,geometry,selected,selected.x_mm)
+    return normal_measurement_from_geometry(measure(rectified_a4), distance_mm)
+
+def recognize_numbered_squares(
+    rectified_a4: np.ndarray,
+    geometry: MeasurementResult,
+    recognizer: HogSvmDigitRecognizer | None = None,
+) -> tuple[NumberedSquareMeasurement, ...]:
+    """一次性识别场景中所有正方形的数字，不依赖用户预选数字。"""
+    if not geometry.shapes or not all(x.shape_type == "square" for x in geometry.shapes):
+        raise ValueError("Numbered measurement requires square targets only.")
+    digit_recognizer = recognizer or HogSvmDigitRecognizer.load(DEFAULT_DIGIT_MODEL)
+    sx = rectified_a4.shape[1] / A4_WIDTH_MM
+    sy = rectified_a4.shape[0] / A4_HEIGHT_MM
+    scale = (sx + sy) / 2
+    numbered = []
+    for shape in geometry.shapes:
+        recognition: DigitRecognition = digit_recognizer.recognize_square(
+            rectified_a4,
+            (shape.center_mm[0] * sx, shape.center_mm[1] * sy),
+            shape.x_mm * scale,
+            shape.angle_deg,
+        )
+        numbered.append(
+            NumberedSquareMeasurement(
+                shape,
+                recognition.digit,
+                recognition.confidence,
+                recognition.patch,
+            )
+        )
+    return tuple(numbered)
+
+def numbered_measurement_from_recognitions(
+    geometry: MeasurementResult,
+    squares: tuple[NumberedSquareMeasurement, ...],
+    requested_digit: int,
+    distance_mm: float | None = None,
+) -> NumberedMeasurementResult:
+    """从缓存的全部数字结果中选择用户指定数字，不再重复几何或HOG计算。"""
+    if not 0 <= requested_digit <= 9:
+        raise ValueError("requested_digit must be between 0 and 9.")
+    matches = [item for item in squares if item.digit == requested_digit]
+    if not matches:
+        raise ValueError(f"Requested digit {requested_digit} was not recognized in the image.")
+    if len(matches) > 1:
+        raise ValueError(f"Requested digit {requested_digit} is ambiguous in the image.")
+    selected = matches[0]
+    return NumberedMeasurementResult(
+        distance_mm,
+        requested_digit,
+        geometry,
+        squares,
+        selected,
+        selected.geometry.x_mm,
+    )
 
 def _recognize_numbered_squares(
     rectified_a4: np.ndarray,
@@ -52,19 +113,13 @@ def _recognize_numbered_squares(
     distance_mm: float | None,
     recognizer: HogSvmDigitRecognizer | None,
 ) -> NumberedMeasurementResult:
-    if not 0<=requested_digit<=9:raise ValueError("requested_digit must be between 0 and 9.")
-    if not geometry.shapes or not all(x.shape_type=="square" for x in geometry.shapes):raise ValueError("Numbered measurement requires square targets only.")
-    digit_recognizer=recognizer or HogSvmDigitRecognizer.load(DEFAULT_DIGIT_MODEL)
-    sx=rectified_a4.shape[1]/A4_WIDTH_MM; sy=rectified_a4.shape[0]/A4_HEIGHT_MM; scale=(sx+sy)/2
-    numbered=[]
-    for shape in geometry.shapes:
-        recognition:DigitRecognition=digit_recognizer.recognize_square(rectified_a4,(shape.center_mm[0]*sx,shape.center_mm[1]*sy),shape.x_mm*scale,shape.angle_deg)
-        numbered.append(NumberedSquareMeasurement(shape,recognition.digit,recognition.confidence,recognition.patch))
-    matches=[x for x in numbered if x.digit==requested_digit]
-    if not matches:raise ValueError(f"Requested digit {requested_digit} was not recognized in the image.")
-    if len(matches)>1:raise ValueError(f"Requested digit {requested_digit} is ambiguous in the image.")
-    selected=matches[0]
-    return NumberedMeasurementResult(distance_mm,requested_digit,geometry,tuple(numbered),selected,selected.geometry.x_mm)
+    squares = recognize_numbered_squares(rectified_a4, geometry, recognizer)
+    return numbered_measurement_from_recognitions(
+        geometry,
+        squares,
+        requested_digit,
+        distance_mm,
+    )
 
 def measure_numbered(rectified_a4:np.ndarray,requested_digit:int,distance_mm:float|None=None,recognizer:HogSvmDigitRecognizer|None=None)->NumberedMeasurementResult:
     return _recognize_numbered_squares(
@@ -80,8 +135,7 @@ def measure_normal_low_resolution(
     distance_mm: float | None = None,
 ) -> NormalMeasurementResult:
     geometry = measure_low_resolution(rectified_frames)
-    selected = _select_normal_shape(geometry)
-    return NormalMeasurementResult(distance_mm, geometry, selected, selected.x_mm)
+    return normal_measurement_from_geometry(geometry, distance_mm)
 
 def measure_numbered_low_resolution(
     rectified_frames: tuple[np.ndarray, ...] | list[np.ndarray],

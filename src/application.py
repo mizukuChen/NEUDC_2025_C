@@ -15,15 +15,22 @@ from src.vision.distance import (
     undistorted_camera_matrix,
 )
 from src.vision.fisheye import load_fisheye_calibration, undistort_fisheye_image
-from src.vision.measure import Measurement, MeasurementResult, draw_measurements
+from src.vision.measure import (
+    Measurement,
+    MeasurementResult,
+    draw_measurements,
+    measure_low_resolution,
+)
 from src.vision.lowres_preprocess import WORK_HEIGHT_PX, WORK_WIDTH_PX
 from src.vision.measurement_tasks import (
     NumberedMeasurementResult,
+    NumberedSquareMeasurement,
     NormalMeasurementResult,
     measure_normal,
-    measure_normal_low_resolution,
     measure_numbered,
-    measure_numbered_low_resolution,
+    normal_measurement_from_geometry,
+    numbered_measurement_from_recognitions,
+    recognize_numbered_squares,
 )
 from src.vision.rectify import rectify_a4
 from src.vision.target_plane import find_target_plane
@@ -66,6 +73,20 @@ class CameraSceneSignature:
 
     normalized_corners: np.ndarray
     content_mask: np.ndarray
+
+
+@dataclass(frozen=True)
+class CameraSceneAnalysis:
+    """一次相机完整分析的模式无关结果，可派生普通或任意数字输出。"""
+
+    geometry: MeasurementResult
+    numbered_squares: tuple[NumberedSquareMeasurement, ...] | None
+    corrected_distance_mm: float
+    reprojection_error_px: float
+    plane_axis_angle_deg: float
+    input_image: np.ndarray
+    located_a4: np.ndarray
+    rectified_a4: np.ndarray
 
 
 def _selected_index(result: MeasurementResult, selected: Measurement) -> int:
@@ -589,17 +610,29 @@ class MeasurementApplication:
         mode: str,
         digit: int | None = None,
     ) -> ApplicationResult:
-        """定位并拉直多帧相机图像，再走低分辨率融合测量流程。"""
+        """保留原按键入口：分析当前三帧，再生成所请求模式的结果。"""
+        if mode not in {"normal", "numbered"}:
+            raise ValueError(f"未知测量模式：{mode}")
+        if mode == "numbered" and (digit is None or not 0 <= digit <= 9):
+            raise ValueError("数字识别模式必须输入 0～9")
+        analysis = self.analyze_camera_frames(
+            frames,
+            recognize_digits=mode == "numbered",
+        )
+        return self.result_from_camera_analysis(analysis, mode, digit)
+
+    def analyze_camera_frames(
+        self,
+        frames: tuple[np.ndarray, ...] | list[np.ndarray],
+        recognize_digits: bool = True,
+    ) -> CameraSceneAnalysis:
+        """只做一次A4定位、几何检测，并按需一次性识别全部正方形数字。"""
         if not frames:
             raise ValueError("输入相机帧为空")
         arrays = [np.asarray(frame) for frame in frames]
         shape = arrays[0].shape
         if arrays[0].size == 0 or any(frame.size == 0 or frame.shape != shape for frame in arrays):
             raise ValueError("输入相机帧必须非空且尺寸一致")
-        if mode not in {"normal", "numbered"}:
-            raise ValueError(f"未知测量模式：{mode}")
-        if mode == "numbered" and (digit is None or not 0 <= digit <= 9):
-            raise ValueError("数字识别模式必须输入 0～9")
 
         fisheye, correction = self._load()
         height, width = arrays[-1].shape[:2]
@@ -635,45 +668,78 @@ class MeasurementApplication:
                 f"A4 定位重投影误差过大：{distance.reprojection_error_px:.2f} px"
             )
 
+        geometry = measure_low_resolution(rectified_frames)
+        measurement_image = geometry.measurement_image
+        if measurement_image is None:
+            raise ValueError("低分辨率测量没有生成融合后的A4图像")
+        numbered_squares = None
+        if recognize_digits and geometry.shapes and all(
+            item.shape_type == "square" for item in geometry.shapes
+        ):
+            numbered_squares = recognize_numbered_squares(
+                measurement_image,
+                geometry,
+            )
+        return CameraSceneAnalysis(
+            geometry=geometry,
+            numbered_squares=numbered_squares,
+            corrected_distance_mm=distance.corrected_distance_mm,
+            reprojection_error_px=distance.reprojection_error_px,
+            plane_axis_angle_deg=_plane_axis_angle_deg(distance.rvec),
+            input_image=arrays[-1].copy(),
+            located_a4=_draw_a4_location(undistorted_latest, full_corners),
+            rectified_a4=measurement_image,
+        )
+
+    def result_from_camera_analysis(
+        self,
+        analysis: CameraSceneAnalysis,
+        mode: str,
+        digit: int | None = None,
+    ) -> ApplicationResult:
+        """从同一场景分析快速派生普通输出或任意指定数字输出。"""
+        if mode not in {"normal", "numbered"}:
+            raise ValueError(f"未知测量模式：{mode}")
         if mode == "normal":
-            plane_angle = _plane_axis_angle_deg(distance.rvec)
-            tilted = _is_tilted_plane(plane_angle)
-            task = measure_normal_low_resolution(
-                rectified_frames,
-                None if tilted else distance.corrected_distance_mm,
+            tilted = _is_tilted_plane(analysis.plane_axis_angle_deg)
+            task = normal_measurement_from_geometry(
+                analysis.geometry,
+                None if tilted else analysis.corrected_distance_mm,
             )
             selected = task.selected_shape
             summary = _normal_summary(
                 task,
-                distance.reprojection_error_px,
-                plane_angle,
+                analysis.reprojection_error_px,
+                analysis.plane_axis_angle_deg,
             )
-            output_distance = None if tilted else distance.corrected_distance_mm
+            output_distance = None if tilted else analysis.corrected_distance_mm
         else:
-            task = measure_numbered_low_resolution(
-                rectified_frames,
+            if digit is None or not 0 <= digit <= 9:
+                raise ValueError("数字识别模式必须输入 0～9")
+            if analysis.numbered_squares is None:
+                raise ValueError("当前场景没有可用的数字正方形识别结果")
+            task = numbered_measurement_from_recognitions(
+                analysis.geometry,
+                analysis.numbered_squares,
                 int(digit),
-                distance.corrected_distance_mm,
+                analysis.corrected_distance_mm,
             )
             selected = task.selected_square.geometry
-            summary = _numbered_summary(task, distance.reprojection_error_px)
-            output_distance = distance.corrected_distance_mm
+            summary = _numbered_summary(task, analysis.reprojection_error_px)
+            output_distance = analysis.corrected_distance_mm
 
-        measurement_image = task.geometry.measurement_image
-        if measurement_image is None:
-            raise ValueError("低分辨率测量没有生成融合后的A4图像")
         selected_index = _selected_index(task.geometry, selected)
         return ApplicationResult(
             mode=mode,
             x_mm=task.x_mm,
             distance_mm=output_distance,
-            reprojection_error_px=distance.reprojection_error_px,
+            reprojection_error_px=analysis.reprojection_error_px,
             summary=summary,
-            input_image=arrays[-1].copy(),
-            located_a4=_draw_a4_location(undistorted_latest, full_corners),
-            rectified_a4=measurement_image,
+            input_image=analysis.input_image,
+            located_a4=analysis.located_a4,
+            rectified_a4=analysis.rectified_a4,
             annotated_a4=draw_measurements(
-                measurement_image,
+                analysis.rectified_a4,
                 task.geometry,
                 selected_index,
             ),

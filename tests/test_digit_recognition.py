@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 import cv2
+import numpy as np
 
 from scripts.targets.generate_numbered_squares import PRESETS, render
 from src.vision.hog import extract_hog
-from src.vision.recognize_digits import HogSvmDigitRecognizer, extract_digit_patch
+from src.vision.measure import Measurement, MeasurementResult
+from src.vision.measurement_tasks import (
+    numbered_measurement_from_recognitions,
+    recognize_numbered_squares,
+)
+from src.vision.recognize_digits import (
+    DigitRecognition,
+    HogSvmDigitRecognizer,
+    extract_digit_patch,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +56,45 @@ class DigitRecognitionTest(unittest.TestCase):
                     )
                     self.assertEqual(result.digit, square.digit)
                     self.assertGreater(result.confidence, 0.8)
+
+    def test_all_digits_are_recognized_once_then_selected_without_recognition(self) -> None:
+        shapes = tuple(
+            Measurement("square", size, center, 0.0, 1.0, "test")
+            for size, center in (
+                (50.0, (50.0, 80.0)),
+                (60.0, (105.0, 150.0)),
+                (70.0, (160.0, 220.0)),
+            )
+        )
+        geometry = MeasurementResult(shapes, "separate", 2.0, 1.0)
+        recognizer = Mock()
+        recognizer.recognize_square.side_effect = [
+            DigitRecognition(digit, 0.9, np.zeros((28, 28), dtype=np.uint8))
+            for digit in (2, 3, 4)
+        ]
+
+        squares = recognize_numbered_squares(
+            np.full((594, 420, 3), 255, dtype=np.uint8),
+            geometry,
+            recognizer,
+        )
+        selected_three = numbered_measurement_from_recognitions(
+            geometry,
+            squares,
+            3,
+            1500.0,
+        )
+        selected_four = numbered_measurement_from_recognitions(
+            geometry,
+            squares,
+            4,
+            1500.0,
+        )
+
+        self.assertEqual(recognizer.recognize_square.call_count, 3)
+        self.assertEqual([item.digit for item in squares], [2, 3, 4])
+        self.assertEqual(selected_three.x_mm, 60.0)
+        self.assertEqual(selected_four.x_mm, 70.0)
 
 
 if __name__ == "__main__":

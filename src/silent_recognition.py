@@ -7,10 +7,13 @@ from typing import Any
 import cv2
 import numpy as np
 
-from src.application import CameraSceneSignature, MeasurementApplication
+from src.application import (
+    CameraSceneAnalysis,
+    CameraSceneSignature,
+    MeasurementApplication,
+)
 
 
-RequestKey = tuple[str, int | None]
 StatusCallback = Callable[[str], None]
 
 
@@ -72,13 +75,12 @@ class SilentRecognitionManager:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._enabled = True
-        self._desired: RequestKey = ("normal", None)
         self._scene: CameraSceneSignature | None = None
         self._stable_count = 0
         self._miss_count = 0
         self._trusted = False
-        self._cache: dict[RequestKey, Any] = {}
-        self._recognizing: RequestKey | None = None
+        self._analysis: CameraSceneAnalysis | None = None
+        self._recognizing = False
         self._last_frame: np.ndarray | None = None
         self._thread = threading.Thread(
             target=self._run,
@@ -112,43 +114,42 @@ class SilentRecognitionManager:
             self._trusted = False
             if not self._enabled:
                 self._scene = None
-                self._cache.clear()
+                self._analysis = None
             self._condition.notify_all()
         self._publish("静默识别：正在寻找 A4" if enabled else "静默识别：已关闭")
         self._wake.set()
 
     def set_request(self, mode: str, digit: int | None = None) -> None:
+        """仅校验界面输入；场景分析不再依赖模式或预选数字。"""
         if mode not in {"normal", "numbered"}:
             raise ValueError(f"未知测量模式：{mode}")
         if mode == "numbered" and (digit is None or not 0 <= digit <= 9):
             return
-        key = (mode, int(digit) if mode == "numbered" else None)
         with self._condition:
-            changed = key != self._desired
-            self._desired = key
-            cached = self._trusted and key in self._cache
-            self._condition.notify_all()
+            cached = self._trusted and self._analysis is not None
         if cached:
             self._publish("静默识别：缓存已就绪")
-        elif changed:
-            self._publish("静默识别：等待当前模式结果")
-        self._wake.set()
 
     def cached_result(self, mode: str, digit: int | None = None) -> Any | None:
-        key = (mode, int(digit) if mode == "numbered" and digit is not None else None)
+        """从同一份可信场景分析即时派生当前界面请求。"""
         with self._condition:
-            if not self._enabled or not self._trusted:
+            if not self._enabled or not self._trusted or self._analysis is None:
                 return None
-            return self._cache.get(key)
+            analysis = self._analysis
+        return self.application.result_from_camera_analysis(analysis, mode, digit)
 
     def measure(self, mode: str, digit: int | None = None) -> Any:
         """优先返回可信缓存；没有缓存时串行调用原相机识别流程。"""
         self.set_request(mode, digit)
-        key = (mode, int(digit) if mode == "numbered" and digit is not None else None)
         with self._process_lock:
-            cached = self.cached_result(mode, digit)
+            with self._condition:
+                analysis = (
+                    self._analysis
+                    if self._enabled and self._trusted
+                    else None
+                )
             frames = self.application.buffered_camera_frames()
-            if cached is not None:
+            if analysis is not None:
                 try:
                     current = self.application.probe_camera_frame(frames[-1])
                 except Exception:
@@ -165,9 +166,13 @@ class SilentRecognitionManager:
                             self._scene = current
                             self._miss_count = 0
                     if still_valid:
-                        return cached
+                        return self.application.result_from_camera_analysis(
+                            analysis,
+                            mode,
+                            digit,
+                        )
                     self._record_signature(current)
-            result = self.application.process_camera_frames(frames, key[0], key[1])
+            result = self.application.process_camera_frames(frames, mode, digit)
             return result
 
     def run_exclusive(self, function: Callable[[], Any]) -> Any:
@@ -194,14 +199,17 @@ class SilentRecognitionManager:
                 self._record_miss()
                 return
 
-            should_recognize, key = self._record_signature(signature)
+            should_recognize = self._record_signature(signature)
             if not should_recognize:
                 return
             self._publish("静默识别：正在后台识别")
             with self._condition:
-                self._recognizing = key
+                self._recognizing = True
             try:
-                result = self.application.process_camera_frames(frames, key[0], key[1])
+                analysis = self.application.analyze_camera_frames(
+                    frames,
+                    recognize_digits=True,
+                )
                 latest = self.application.buffered_camera_frames(timeout_s=1.0)
                 latest_signature = self.application.probe_camera_frame(latest[-1])
             except Exception:
@@ -216,31 +224,31 @@ class SilentRecognitionManager:
                 )
                 if same_scene:
                     self._scene = latest_signature
-                    self._cache[key] = result
+                    self._analysis = analysis
                     self._trusted = True
                     self._miss_count = 0
                 else:
                     self._clear_locked()
-                self._recognizing = None
+                self._recognizing = False
                 self._condition.notify_all()
             self._publish(
                 "静默识别：缓存已就绪" if same_scene else "静默识别：画面已变化"
             )
         finally:
             with self._condition:
-                if self._recognizing is not None:
-                    self._recognizing = None
+                if self._recognizing:
+                    self._recognizing = False
                     self._condition.notify_all()
             self._process_lock.release()
 
-    def _record_signature(self, signature: CameraSceneSignature) -> tuple[bool, RequestKey]:
+    def _record_signature(self, signature: CameraSceneSignature) -> bool:
         with self._condition:
             if self._scene is None or not scene_signatures_similar(self._scene, signature):
                 self._scene = signature
                 self._stable_count = 1
                 self._miss_count = 0
                 self._trusted = self._stable_count >= self.stable_observations
-                self._cache.clear()
+                self._analysis = None
                 status = "静默识别：A4 稳定中 1/{}".format(self.stable_observations)
             else:
                 self._scene = signature
@@ -251,11 +259,10 @@ class SilentRecognitionManager:
                     self._stable_count,
                     self.stable_observations,
                 )
-            key = self._desired
-            cached = key in self._cache
-            should_recognize = self._trusted and not cached and self._recognizing is None
+            cached = self._analysis is not None
+            should_recognize = self._trusted and not cached and not self._recognizing
         self._publish("静默识别：缓存已就绪" if self._trusted and cached else status)
-        return should_recognize, key
+        return should_recognize
 
     def _record_miss(self) -> None:
         with self._condition:
@@ -267,7 +274,7 @@ class SilentRecognitionManager:
                 status = "静默识别：正在寻找 A4"
             else:
                 status = "静默识别：A4 暂时丢失"
-            self._recognizing = None
+            self._recognizing = False
             self._condition.notify_all()
         self._publish(status)
 
@@ -276,7 +283,7 @@ class SilentRecognitionManager:
         self._stable_count = 0
         self._miss_count = 0
         self._trusted = False
-        self._cache.clear()
+        self._analysis = None
 
     def _publish(self, status: str) -> None:
         if self._status_callback is not None:
