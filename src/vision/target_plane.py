@@ -17,6 +17,7 @@ class TargetPlane:
     """
     corners: np.ndarray
     contour_area: float
+    strong_perspective: bool = False
 
 
 def order_corners(points: np.ndarray) -> np.ndarray:
@@ -42,7 +43,7 @@ def order_corners(points: np.ndarray) -> np.ndarray:
     return ordered
 
 
-def dark_mask(image: np.ndarray) -> np.ndarray:
+def dark_mask(image: np.ndarray, close_iterations: int = 2) -> np.ndarray:
     """
     生成图像中的暗色（黑色）前景遮罩，用于寻找 A4 纸的黑色边框。
     结合了大津法（OTSU）、固定阈值和自适应阈值，以应对复杂的阴影和光照变化。
@@ -72,7 +73,15 @@ def dark_mask(image: np.ndarray) -> np.ndarray:
     if kernel_size % 2 == 0:
         kernel_size += 1
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    if close_iterations < 0:
+        raise ValueError("close_iterations must not be negative.")
+    if close_iterations:
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_CLOSE,
+            kernel,
+            iterations=close_iterations,
+        )
     return mask
 
 
@@ -135,12 +144,19 @@ def _border_score(mask: np.ndarray, quad: np.ndarray) -> float:
     return border_mean - 0.35 * inner_mean
 
 
-def _find_target_plane_once(image: np.ndarray, min_score: float = 0.35) -> TargetPlane:
+def _find_target_plane_once(
+    image: np.ndarray,
+    min_score: float = 0.35,
+    close_iterations: int = 2,
+    min_quad_fraction: float = 0.006,
+    min_width_fraction: float = 0.08,
+    max_aspect_ratio: float = 2.4,
+) -> TargetPlane:
     """
     在单张图像（或裁剪区域）中搜索最佳的 A4 纸黑框平面。
     通过轮廓过滤、几何宽高比限制以及边界评分进行层层筛选。
     """
-    mask = dark_mask(image)
+    mask = dark_mask(image, close_iterations=close_iterations)
     contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         raise ValueError("No dark contour found.")
@@ -159,7 +175,7 @@ def _find_target_plane_once(image: np.ndarray, min_score: float = 0.35) -> Targe
 
         # 限制候选四边形的像素面积范围 (0.6% ~ 90%)
         quad_area = abs(cv2.contourArea(quad))
-        if quad_area < image_area * 0.006 or quad_area > image_area * 0.90:
+        if quad_area < image_area * min_quad_fraction or quad_area > image_area * 0.90:
             continue
 
         # 检查候选框是否触碰图像边缘（触碰边界可能导致角点缺失）
@@ -174,9 +190,9 @@ def _find_target_plane_once(image: np.ndarray, min_score: float = 0.35) -> Targe
             continue
 
         # 尺寸限制：不能太小，且高宽比需在合理范围（0.8 ~ 2.4），过滤条状干扰
-        if w < image.shape[1] * 0.08 or h < image.shape[0] * 0.08:
+        if w < image.shape[1] * min_width_fraction or h < image.shape[0] * 0.08:
             continue
-        if h / max(w, 1) < 0.8 or h / max(w, 1) > 2.4:
+        if h / max(w, 1) < 0.8 or h / max(w, 1) > max_aspect_ratio:
             continue
 
         # 进行黑边框匹配度打分
@@ -213,19 +229,39 @@ def find_target_plane(image: np.ndarray) -> TargetPlane:
     在全图及多个预设子区域中依次尝试定位 A4 平面，直到定位成功并返回排序后的角点。
     """
     errors: list[str] = []
-    for x, y, width, height in _candidate_regions(image):
-        crop = image[y : y + height, x : x + width]
-        try:
-            plane = _find_target_plane_once(crop)
-        except ValueError as exc:
-            errors.append(str(exc))
-            continue
+    attempts = (
+        (False, {}),
+        (
+            True,
+            {
+                # 实心暗块的理论得分约为0.65；强透视兜底必须高于它，
+                # 防止把纸内正方形误当成A4黑框。
+                "min_score": 0.70,
+                "close_iterations": 1,
+                "min_quad_fraction": 0.003,
+                "min_width_fraction": 0.045,
+                "max_aspect_ratio": 4.0,
+            },
+        ),
+    )
+    for strong_perspective, parameters in attempts:
+        for x, y, width, height in _candidate_regions(image):
+            crop = image[y : y + height, x : x + width]
+            try:
+                plane = _find_target_plane_once(crop, **parameters)
+            except ValueError as exc:
+                errors.append(str(exc))
+                continue
 
-        # 映射回全图的全局像素坐标系下
-        corners = plane.corners.copy()
-        corners[:, 0] += x
-        corners[:, 1] += y
-        return TargetPlane(corners=order_corners(corners), contour_area=plane.contour_area)
+            # 映射回全图的全局像素坐标系下
+            corners = plane.corners.copy()
+            corners[:, 0] += x
+            corners[:, 1] += y
+            return TargetPlane(
+                corners=order_corners(corners),
+                contour_area=plane.contour_area,
+                strong_perspective=strong_perspective,
+            )
 
     raise ValueError(errors[-1] if errors else "No valid A4 border candidate found.")
 

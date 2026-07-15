@@ -40,13 +40,15 @@ SHAPE_NAMES = {
     "triangle": "三角形",
     "square": "正方形",
 }
+TILTED_PLANE_MIN_DEG = 25.0
+TILTED_PLANE_MAX_DEG = 65.0
 
 
 @dataclass(frozen=True)
 class ApplicationResult:
     mode: str
     x_mm: float
-    distance_mm: float
+    distance_mm: float | None
     reprojection_error_px: float
     summary: str
     input_image: np.ndarray
@@ -59,7 +61,27 @@ def _selected_index(result: MeasurementResult, selected: Measurement) -> int:
     return next(index for index, shape in enumerate(result.shapes) if shape is selected)
 
 
-def _normal_summary(task: NormalMeasurementResult, reprojection_error_px: float) -> str:
+def _plane_axis_angle_deg(rvec: np.ndarray) -> float:
+    """由A4姿态计算物面与相机光轴之间的锐角。"""
+    rotation, _ = cv2.Rodrigues(np.asarray(rvec, dtype=np.float64))
+    plane_normal = rotation[:, 2]
+    return float(
+        np.degrees(
+            np.arcsin(np.clip(abs(float(plane_normal[2])), 0.0, 1.0))
+        )
+    )
+
+
+def _is_tilted_plane(angle_deg: float) -> bool:
+    # 给题目30°～60°范围各留5°姿态估计余量。
+    return TILTED_PLANE_MIN_DEG <= angle_deg <= TILTED_PLANE_MAX_DEG
+
+
+def _normal_summary(
+    task: NormalMeasurementResult,
+    reprojection_error_px: float,
+    plane_axis_angle_deg: float | None = None,
+) -> str:
     counts: dict[str, int] = {}
     for shape in task.geometry.shapes:
         name = SHAPE_NAMES.get(shape.shape_type, shape.shape_type)
@@ -69,19 +91,36 @@ def _normal_summary(task: NormalMeasurementResult, reprojection_error_px: float)
         f"  {index}. {SHAPE_NAMES.get(shape.shape_type, shape.shape_type)}，尺寸 {shape.x_mm:.2f} mm"
         for index, shape in enumerate(task.geometry.shapes, 1)
     ]
-    return "\n".join(
+    tilted = (
+        plane_axis_angle_deg is not None
+        and _is_tilted_plane(plane_axis_angle_deg)
+    )
+    lines = ["识别成功", "模式：普通识别"]
+    if tilted:
+        lines.extend(
+            [
+                "场景：发挥（4）倾斜物面",
+                f"物面与轴线夹角：{plane_axis_angle_deg:.1f}°",
+            ]
+        )
+    lines.extend(
         [
-            "识别成功",
-            "模式：普通识别",
             f"布局：{LAYOUT_NAMES.get(task.geometry.layout, task.geometry.layout)}",
             f"检测结果：{detected}",
             f"测量输出：{task.x_mm:.2f} mm",
-            f"目标距离：{task.distance_mm:.1f} mm" if task.distance_mm is not None else "目标距离：未测量",
+            (
+                "目标距离：发挥（4）不要求输出"
+                if tilted
+                else f"目标距离：{task.distance_mm:.1f} mm"
+                if task.distance_mm is not None
+                else "目标距离：未测量"
+            ),
             f"A4 定位误差：{reprojection_error_px:.2f} px",
             "全部目标：",
             *details,
         ]
     )
+    return "\n".join(lines)
 
 
 def _numbered_summary(task: NumberedMeasurementResult, reprojection_error_px: float) -> str:
@@ -232,19 +271,30 @@ class MeasurementApplication:
 
         rectified = rectify_a4(strip, plane.corners)
         if mode == "normal":
-            task = measure_normal(rectified, distance.corrected_distance_mm)
+            plane_angle = _plane_axis_angle_deg(distance.rvec)
+            tilted = _is_tilted_plane(plane_angle)
+            task = measure_normal(
+                rectified,
+                None if tilted else distance.corrected_distance_mm,
+            )
             selected = task.selected_shape
-            summary = _normal_summary(task, distance.reprojection_error_px)
+            summary = _normal_summary(
+                task,
+                distance.reprojection_error_px,
+                plane_angle,
+            )
+            output_distance = None if tilted else distance.corrected_distance_mm
         else:
             task = measure_numbered(rectified, int(digit), distance.corrected_distance_mm)
             selected = task.selected_square.geometry
             summary = _numbered_summary(task, distance.reprojection_error_px)
+            output_distance = distance.corrected_distance_mm
 
         selected_index = _selected_index(task.geometry, selected)
         return ApplicationResult(
             mode=mode,
             x_mm=task.x_mm,
-            distance_mm=distance.corrected_distance_mm,
+            distance_mm=output_distance,
             reprojection_error_px=distance.reprojection_error_px,
             summary=summary,
             input_image=raw.copy(),
@@ -303,12 +353,19 @@ class MeasurementApplication:
             )
 
         if mode == "normal":
+            plane_angle = _plane_axis_angle_deg(distance.rvec)
+            tilted = _is_tilted_plane(plane_angle)
             task = measure_normal_low_resolution(
                 rectified_frames,
-                distance.corrected_distance_mm,
+                None if tilted else distance.corrected_distance_mm,
             )
             selected = task.selected_shape
-            summary = _normal_summary(task, distance.reprojection_error_px)
+            summary = _normal_summary(
+                task,
+                distance.reprojection_error_px,
+                plane_angle,
+            )
+            output_distance = None if tilted else distance.corrected_distance_mm
         else:
             task = measure_numbered_low_resolution(
                 rectified_frames,
@@ -317,6 +374,7 @@ class MeasurementApplication:
             )
             selected = task.selected_square.geometry
             summary = _numbered_summary(task, distance.reprojection_error_px)
+            output_distance = distance.corrected_distance_mm
 
         measurement_image = task.geometry.measurement_image
         if measurement_image is None:
@@ -325,7 +383,7 @@ class MeasurementApplication:
         return ApplicationResult(
             mode=mode,
             x_mm=task.x_mm,
-            distance_mm=distance.corrected_distance_mm,
+            distance_mm=output_distance,
             reprojection_error_px=distance.reprojection_error_px,
             summary=summary,
             input_image=arrays[-1].copy(),

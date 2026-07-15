@@ -49,7 +49,7 @@ class ApplicationPresentationTest(unittest.TestCase):
         capture.release.assert_called_once()
         video_capture.assert_called_once_with(0, cv2.CAP_V4L2)
 
-    def test_camera_frames_route_to_low_resolution_measurement(self) -> None:
+    def test_tilted_camera_frames_route_without_distance_output(self) -> None:
         application = MeasurementApplication()
         application._fisheye = object()
         application._correction = None
@@ -57,11 +57,15 @@ class ApplicationPresentationTest(unittest.TestCase):
         work_image = np.full((594, 420, 3), 240, dtype=np.uint8)
         shape = Measurement("square", 60.0, (105.0, 148.5), 0.0, 0.9, "overlap_lowres")
         geometry = MeasurementResult((shape,), "overlap", 2.0, 0.8, work_image)
-        task = NormalMeasurementResult(1500.0, geometry, shape, shape.x_mm)
+        task = NormalMeasurementResult(None, geometry, shape, shape.x_mm)
         plane = SimpleNamespace(
             corners=np.asarray([[10, 10], [50, 10], [50, 100], [10, 100]], dtype=np.float32)
         )
-        distance = SimpleNamespace(corrected_distance_mm=1500.0, reprojection_error_px=0.5)
+        distance = SimpleNamespace(
+            corrected_distance_mm=1500.0,
+            reprojection_error_px=0.5,
+            rvec=np.asarray([[0.0], [np.deg2rad(55.0)], [0.0]]),
+        )
 
         with (
             patch("src.application.undistort_fisheye_image", side_effect=lambda image, _: image),
@@ -75,7 +79,11 @@ class ApplicationPresentationTest(unittest.TestCase):
 
         self.assertEqual(rectify.call_count, 3)
         self.assertEqual(len(measure.call_args.args[0]), 3)
+        self.assertIsNone(measure.call_args.args[1])
         self.assertEqual(result.x_mm, 60.0)
+        self.assertIsNone(result.distance_mm)
+        self.assertIn("发挥（4）倾斜物面", result.summary)
+        self.assertIn("目标距离：发挥（4）不要求输出", result.summary)
         self.assertEqual(result.rectified_a4.shape[:2], (594, 420))
         np.testing.assert_array_equal(result.input_image, raw_frames[-1])
 
