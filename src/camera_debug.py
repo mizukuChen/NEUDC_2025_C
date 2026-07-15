@@ -380,6 +380,7 @@ class CameraDebugGui:
         if self._diagnostics is None:
             return
         selected = self.notebook.tab(self.notebook.select(), "text")
+        label = self.labels[selected]
         image = {
             VIEW_FULL: self._diagnostics.full,
             VIEW_LOCATION: self._diagnostics.located,
@@ -388,11 +389,21 @@ class CameraDebugGui:
         }[selected]
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         rendered = Image.fromarray(rgb)
-        rendered.thumbnail((810, 650), Image.Resampling.BILINEAR)
+        # 预览区会随屏幕分辨率及窗口大小变化。固定使用 810×650 会让
+        # 1024×600 的树莓派屏幕直接裁掉图片；按标签实际尺寸缩放才能
+        # 保证完整画面和竖版 A4 都全部可见。
+        viewport_width = label.winfo_width()
+        viewport_height = label.winfo_height()
+        if viewport_width <= 2 or viewport_height <= 2:
+            return
+        rendered.thumbnail(
+            (max(1, viewport_width - 4), max(1, viewport_height - 4)),
+            Image.Resampling.BILINEAR,
+        )
         from PIL import ImageTk
 
         self._photo = ImageTk.PhotoImage(rendered)
-        self.labels[selected].configure(image=self._photo, text="")
+        label.configure(image=self._photo, text="")
 
     def _show_help(self) -> None:
         import tkinter as tk
