@@ -149,7 +149,9 @@ def read_camera_controls(camera_device: str) -> dict[str, int]:
         if ":" not in line:
             continue
         name, raw = line.split(":", 1)
-        values[name.strip()] = int(raw.strip())
+        # 菜单类控件会返回 ``3 (Aperture Priority Mode)``，数值位于首字段。
+        value_text = raw.strip().split(maxsplit=1)[0]
+        values[name.strip()] = int(value_text)
     return values
 
 

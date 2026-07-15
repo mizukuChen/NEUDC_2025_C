@@ -50,13 +50,20 @@ class CameraSettingsTest(unittest.TestCase):
             completed = subprocess.CompletedProcess(
                 [],
                 0,
-                stdout="brightness: -3\ncontrast: 36\n",
+                stdout=(
+                    "brightness: -3\n"
+                    "contrast: 36\n"
+                    "auto_exposure: 3 (Aperture Priority Mode)\n"
+                ),
                 stderr="",
             )
             with patch("src.camera_settings.subprocess.run", return_value=completed) as run:
                 apply_camera_controls(capture, settings, device.name)
                 actual = read_camera_controls(device.name)
-        self.assertEqual(actual, {"brightness": -3, "contrast": 36})
+        self.assertEqual(
+            actual,
+            {"brightness": -3, "contrast": 36, "auto_exposure": 3},
+        )
         set_command = run.call_args_list[0].args[0]
         self.assertIn("auto_exposure=1", set_command[-1])
         self.assertIn("exposure_time_absolute=420", set_command[-1])
