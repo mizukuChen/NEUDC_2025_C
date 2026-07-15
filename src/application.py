@@ -60,6 +60,14 @@ class ApplicationResult:
     annotated_a4: np.ndarray
 
 
+@dataclass(frozen=True)
+class CameraSceneSignature:
+    """供静默预识别比较的归一化A4位置与纸内二值图案。"""
+
+    normalized_corners: np.ndarray
+    content_mask: np.ndarray
+
+
 def _selected_index(result: MeasurementResult, selected: Measurement) -> int:
     return next(index for index, shape in enumerate(result.shapes) if shape is selected)
 
@@ -473,6 +481,46 @@ class MeasurementApplication:
         if self._camera_buffer is None:
             raise RuntimeError("找不到camera")
         return self._camera_buffer.frames(timeout_s)
+
+    def probe_camera_frame(self, raw: np.ndarray) -> CameraSceneSignature:
+        """轻量定位一帧中的A4，并生成抗光照变化的纸内内容特征。"""
+        if raw is None or raw.size == 0:
+            raise ValueError("输入图像为空")
+        fisheye, _ = self._load()
+        height, width = raw.shape[:2]
+        fixed_map, interpolation_map, _, _, _ = self._camera_undistortion_maps(
+            fisheye,
+            (width, height),
+        )
+        undistorted = cv2.remap(
+            raw,
+            fixed_map,
+            interpolation_map,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+        )
+        strip_width = round(width * self.strip_fraction)
+        left = (width - strip_width) // 2
+        strip = undistorted[:, left : left + strip_width]
+        plane = find_target_plane(strip)
+
+        preview = rectify_a4(strip, plane.corners, 80, 112)
+        gray = cv2.cvtColor(preview, cv2.COLOR_BGR2GRAY)
+        margin_x = max(2, round(gray.shape[1] * 0.07))
+        margin_y = max(2, round(gray.shape[0] * 0.07))
+        inner = gray[margin_y:-margin_y, margin_x:-margin_x]
+        blurred = cv2.GaussianBlur(inner, (3, 3), 0)
+        _, binary = cv2.threshold(
+            blurred,
+            0,
+            255,
+            cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
+        )
+        normalized = plane.corners.astype(np.float32) / np.asarray(
+            [strip.shape[1], strip.shape[0]],
+            dtype=np.float32,
+        )
+        return CameraSceneSignature(normalized, binary > 0)
 
     def process_raw(self, raw: np.ndarray, mode: str, digit: int | None = None) -> ApplicationResult:
         if raw is None or raw.size == 0:

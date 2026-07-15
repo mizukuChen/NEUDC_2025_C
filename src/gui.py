@@ -8,6 +8,7 @@ import cv2
 from PIL import Image
 
 from src.application import DEFAULT_DISTANCE, DEFAULT_FISHEYE, MeasurementApplication
+from src.silent_recognition import SilentRecognitionManager
 
 
 VIEW_INPUT = "输入图像"
@@ -36,6 +37,14 @@ class MeasurementGui:
         self._photos: dict[str, object] = {}
         self._pending_views: dict[str, object] = {}
         self._busy = False
+        self.silent_recognition = SilentRecognitionManager(
+            application,
+            status_callback=lambda message: self.root.after(
+                0,
+                self._set_silent_status,
+                message,
+            ),
+        )
 
         root.title("2025 电赛 C 题视觉测量")
         root.geometry("1024x600")
@@ -70,6 +79,7 @@ class MeasurementGui:
         row.pack(fill=tk.X, pady=(12, 6))
         ttk.Label(row, text="目标数字：").pack(side=tk.LEFT)
         self.digit = tk.StringVar(value="0")
+        self.digit.trace_add("write", lambda *_args: self._sync_silent_request())
         self.entry = ttk.Entry(
             row,
             textvariable=self.digit,
@@ -101,6 +111,21 @@ class MeasurementGui:
             controls, text="选择图片测试", command=self.measure_file
         )
         self.file_button.pack(fill=tk.X, pady=4, ipady=5)
+
+        self.silent_enabled = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            controls,
+            text="静默预识别（默认开启）",
+            variable=self.silent_enabled,
+            command=self._toggle_silent_recognition,
+        ).pack(anchor=tk.W, pady=(10, 2))
+        self.silent_status = tk.StringVar(value="静默识别：正在启动")
+        ttk.Label(
+            controls,
+            textvariable=self.silent_status,
+            wraplength=280,
+            foreground="#555555",
+        ).pack(anchor=tk.W, fill=tk.X, pady=(0, 2))
 
         ttk.Label(controls, text="识别状态", font=("sans", 13, "bold")).pack(
             anchor=tk.W, pady=(12, 4)
@@ -138,6 +163,7 @@ class MeasurementGui:
         self._set_status("请选择识别模式，然后开始测量。")
         self._sync_mode()
         self.application.start_camera(camera_index, width, height)
+        self.silent_recognition.start()
         root.protocol("WM_DELETE_WINDOW", self._close)
 
     def _set_status(self, message: str) -> None:
@@ -156,11 +182,34 @@ class MeasurementGui:
         if state == "normal":
             self.entry.focus_set()
             self.entry.selection_range(0, "end")
+        self._sync_silent_request()
 
     def _select_digit(self, digit: int) -> None:
         self.digit.set(str(digit))
         self.entry.focus_set()
         self.entry.selection_range(0, "end")
+        self._sync_silent_request()
+
+    def _sync_silent_request(self) -> None:
+        if not hasattr(self, "silent_recognition"):
+            return
+        mode = self.mode.get()
+        value = self.digit.get().strip()
+        if mode == "numbered" and (len(value) != 1 or value not in "0123456789"):
+            return
+        self.silent_recognition.set_request(
+            mode,
+            int(value) if mode == "numbered" else None,
+        )
+
+    def _toggle_silent_recognition(self) -> None:
+        enabled = bool(self.silent_enabled.get())
+        self.silent_recognition.set_enabled(enabled)
+        if enabled:
+            self._sync_silent_request()
+
+    def _set_silent_status(self, message: str) -> None:
+        self.silent_status.set(message)
 
     def _clear_views(self) -> None:
         self._photos.clear()
@@ -201,14 +250,14 @@ class MeasurementGui:
 
         def worker() -> None:
             try:
-                loaded = loader()
-                raw = loaded[-1] if camera_input else loaded
-                self.root.after(0, self._input_ready, raw)
-                result = (
-                    self.application.process_camera_frames(loaded, mode, digit)
-                    if camera_input
-                    else self.application.process_raw(raw, mode, digit)
-                )
+                if camera_input:
+                    result = self.silent_recognition.measure(mode, digit)
+                else:
+                    loaded = loader()
+                    self.root.after(0, self._input_ready, loaded)
+                    result = self.silent_recognition.run_exclusive(
+                        lambda: self.application.process_raw(loaded, mode, digit)
+                    )
             except Exception as exc:
                 self.root.after(0, self._error, str(exc))
             else:
@@ -222,7 +271,7 @@ class MeasurementGui:
 
     def measure_camera(self) -> None:
         self._start(
-            self.application.buffered_camera_frames,
+            None,
             camera_input=True,
         )
 
@@ -282,6 +331,7 @@ class MeasurementGui:
             self._show_image(title, image)
 
     def _close(self) -> None:
+        self.silent_recognition.stop()
         self.application.stop_camera()
         self.root.destroy()
 
