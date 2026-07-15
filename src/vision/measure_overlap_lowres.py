@@ -462,10 +462,17 @@ def reconstruct_low_resolution_squares(
         return _extract_candidates(prepare_low_resolution_a4([frame]))
 
     # 四次LSD互不依赖：融合图留在主线程，三张单帧同时使用其余CPU核心。
-    with ThreadPoolExecutor(max_workers=max(1, min(3, len(frame_list)))) as executor:
-        frame_futures = [executor.submit(extract_frame, frame) for frame in frame_list]
-        fused_candidates, edge_full, fused_line_count = _extract_candidates(prepared)
-        frame_results = [future.result() for future in frame_futures]
+    # OpenCV在树莓派默认还会为每次调用开4个内部线程；并行区临时限制为
+    # 每路1线程，避免4路任务膨胀成16个计算线程并造成严重调度波动。
+    previous_cv_threads = cv2.getNumThreads()
+    cv2.setNumThreads(1)
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, min(3, len(frame_list)))) as executor:
+            frame_futures = [executor.submit(extract_frame, frame) for frame in frame_list]
+            fused_candidates, edge_full, fused_line_count = _extract_candidates(prepared)
+            frame_results = [future.result() for future in frame_futures]
+    finally:
+        cv2.setNumThreads(previous_cv_threads)
 
     sources = [(0, candidate) for candidate in fused_candidates]
     for source_index, (frame_candidates, _, _) in enumerate(frame_results, 1):
