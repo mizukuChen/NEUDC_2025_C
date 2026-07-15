@@ -29,6 +29,19 @@ class CameraSettingsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "gain"):
             CameraSettings(gain=64).validate()
 
+    def test_roi_has_only_rectangle_and_image_bounds_constraints(self) -> None:
+        settings = CameraSettings(
+            roi_left=0.1,
+            roi_top=0.2,
+            roi_right=0.9,
+            roi_bottom=0.8,
+        )
+        self.assertEqual(settings.roi_pixels(1000, 500), (100, 100, 900, 400))
+        with self.assertRaisesRegex(ValueError, "正矩形"):
+            CameraSettings(roi_left=0.8, roi_right=0.2).validate()
+        with self.assertRaisesRegex(ValueError, "画面范围"):
+            CameraSettings(roi_top=-0.01).validate()
+
     def test_shared_lock_rejects_second_owner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "camera.lock"

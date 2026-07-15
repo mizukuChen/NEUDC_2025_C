@@ -343,7 +343,12 @@ def main() -> int:
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--fisheye-calibration", type=Path, default=DEFAULT_FISHEYE)
     parser.add_argument("--distance-calibration", type=Path, default=DEFAULT_DISTANCE)
-    parser.add_argument("--strip-fraction", type=float, default=1 / 3)
+    parser.add_argument(
+        "--strip-fraction",
+        type=float,
+        default=None,
+        help="兼容旧版：临时覆盖现场ROI为居中的指定宽度比例",
+    )
     args = parser.parse_args()
     try:
         import tkinter as tk

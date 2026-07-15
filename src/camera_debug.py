@@ -25,7 +25,7 @@ from src.vision.rectify import rectify_a4
 from src.vision.target_plane import find_target_plane
 
 
-VIEW_FULL = "完整画面"
+VIEW_FULL = "去畸变完整画面"
 VIEW_LOCATION = "A4 定位"
 VIEW_RECTIFIED = "拉直后的 A4"
 VIEW_BINARY = "黑色概率图"
@@ -33,8 +33,8 @@ VIEW_BINARY = "黑色概率图"
 HELP_TEXT = """相机环境调试使用说明
 
 1. 使用前先关闭正式测量软件。两个软件不能同时占用摄像头。
-2. 先观察“完整画面”，确认A4位于画面中间1/3，且没有强反光或大面积阴影。
-3. 查看“A4定位”，绿色四边形应准确贴合A4黑框；定位失败时先调整曝光和照明。
+2. 在“ROI”页签独立调整上、下、左、右边界；“去畸变完整画面”中的蓝色矩形必须完整包住A4黑框。
+3. 查看“A4定位”，绿色四边形应准确贴合A4黑框；定位失败时调整ROI、曝光或照明。
 4. 重点查看“拉直后的A4”和“黑色概率图”：黑框及目标边缘应连续，白纸不应变黑，数字笔画不能粘连或消失。
 5. 建议优先使用自动曝光。需要固定画面时关闭自动曝光，再调曝光时间；画面仍暗时才提高增益。
 6. 对比度过高会损失边缘层次，锐度过高会产生双边和LSD伪线。通常保持默认值即可。
@@ -64,7 +64,7 @@ class DiagnosticProcessor:
     def __init__(self, fisheye_path: Path, distance_path: Path) -> None:
         self.application = MeasurementApplication(fisheye_path, distance_path)
 
-    def process(self, raw: np.ndarray) -> CameraDiagnostics:
+    def process(self, raw: np.ndarray, settings: CameraSettings) -> CameraDiagnostics:
         fisheye, _ = self.application._load()
         height, width = raw.shape[:2]
         fixed, interpolation, _, _, _ = self.application._camera_undistortion_maps(
@@ -78,30 +78,54 @@ class DiagnosticProcessor:
             cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
         )
-        strip_width = round(width / 3)
-        left = (width - strip_width) // 2
-        full = raw.copy()
-        cv2.line(full, (left, 0), (left, height - 1), (255, 180, 0), 3)
-        cv2.line(full, (left + strip_width, 0), (left + strip_width, height - 1), (255, 180, 0), 3)
-        strip = undistorted[:, left : left + strip_width]
+        left, top, right, bottom = settings.roi_pixels(width, height)
+        # ROI是在去畸变坐标系中裁剪的，因此调试预览也必须使用同一图像，
+        # 否则鱼眼原图上的直线框并不对应算法真正搜索的区域。
+        full = undistorted.copy()
+        cv2.rectangle(
+            full,
+            (left, top),
+            (right - 1, bottom - 1),
+            (255, 180, 0),
+            3,
+            cv2.LINE_AA,
+        )
+        roi = undistorted[top:bottom, left:right]
         gray = cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY)
         dark_ratio = float(np.mean(gray <= 5)) * 100.0
         bright_ratio = float(np.mean(gray >= 250)) * 100.0
         try:
-            plane = find_target_plane(strip)
+            plane = find_target_plane(roi)
             full_corners = plane.corners.astype(np.float64)
-            full_corners[:, 0] += left
+            full_corners += np.asarray([left, top], dtype=np.float64)
             located = _draw_a4_location(undistorted, full_corners)
-            rectified = rectify_a4(strip, plane.corners, 420, 594)
+            cv2.rectangle(
+                located,
+                (left, top),
+                (right - 1, bottom - 1),
+                (255, 180, 0),
+                3,
+                cv2.LINE_AA,
+            )
+            rectified = rectify_a4(roi, plane.corners, 420, 594)
             probability, black, white = estimate_black_probability(rectified)
             probability_u8 = np.rint(probability * 255.0).astype(np.uint8)
             probability_bgr = cv2.cvtColor(probability_u8, cv2.COLOR_GRAY2BGR)
             message = (
                 f"A4定位成功｜黑框灰度 {black:.1f}｜白纸灰度 {white:.1f}｜"
-                f"黑白差 {white - black:.1f}｜过暗 {dark_ratio:.2f}%｜过曝 {bright_ratio:.2f}%"
+                f"黑白差 {white - black:.1f}｜ROI {right-left}×{bottom-top}px｜"
+                f"过暗 {dark_ratio:.2f}%｜过曝 {bright_ratio:.2f}%"
             )
         except Exception as exc:
             located = undistorted.copy()
+            cv2.rectangle(
+                located,
+                (left, top),
+                (right - 1, bottom - 1),
+                (255, 180, 0),
+                3,
+                cv2.LINE_AA,
+            )
             cv2.putText(
                 located,
                 "A4 NOT FOUND",
@@ -239,9 +263,16 @@ class CameraDebugGui:
         help_canvas.create_text(17, 17, text="?", fill="#205493", font=("sans", 15, "bold"))
         help_canvas.bind("<Button-1>", lambda _event: self._show_help())
 
+        settings_tabs = ttk.Notebook(controls, height=255)
+        settings_tabs.pack(fill=tk.X)
+        camera_panel = ttk.Frame(settings_tabs, padding=(4, 6))
+        roi_panel = ttk.Frame(settings_tabs, padding=(4, 6))
+        settings_tabs.add(camera_panel, text="相机参数")
+        settings_tabs.add(roi_panel, text="ROI")
+
         self.auto_exposure = tk.BooleanVar(value=self.settings.auto_exposure)
         ttk.Checkbutton(
-            controls,
+            camera_panel,
             text="自动曝光",
             variable=self.auto_exposure,
             command=self._sync_exposure_state,
@@ -259,7 +290,7 @@ class CameraDebugGui:
         )
         for name, label, minimum, maximum in specifications:
             variable = tk.IntVar(value=int(getattr(self.settings, name)))
-            row = ttk.Frame(controls)
+            row = ttk.Frame(camera_panel)
             row.pack(fill=tk.X, pady=3)
             ttk.Label(row, text=label, width=9).pack(side=tk.LEFT)
             scale = ttk.Scale(
@@ -274,6 +305,40 @@ class CameraDebugGui:
             spin.pack(side=tk.RIGHT)
             self.variables[name] = variable
             self.widgets[name] = (scale, spin)
+
+        self.roi_variables: dict[str, object] = {}
+        for name, label in (
+            ("roi_left", "左边界"),
+            ("roi_right", "右边界"),
+            ("roi_top", "上边界"),
+            ("roi_bottom", "下边界"),
+        ):
+            variable = tk.DoubleVar(value=float(getattr(self.settings, name)) * 100.0)
+            row = ttk.Frame(roi_panel)
+            row.pack(fill=tk.X, pady=7)
+            ttk.Label(row, text=label, width=9).pack(side=tk.LEFT)
+            ttk.Scale(
+                row,
+                from_=0.0,
+                to=100.0,
+                variable=variable,
+                orient=tk.HORIZONTAL,
+            ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=4)
+            ttk.Spinbox(
+                row,
+                from_=0.0,
+                to=100.0,
+                increment=0.1,
+                textvariable=variable,
+                width=6,
+                format="%.1f",
+            ).pack(side=tk.RIGHT)
+            self.roi_variables[name] = variable
+        ttk.Label(
+            roi_panel,
+            text="四条边界均按完整画面的百分比保存；只要求左<右、上<下。",
+            wraplength=290,
+        ).pack(anchor=tk.W, pady=(8, 0))
 
         button_row = ttk.Frame(controls)
         button_row.pack(fill=tk.X, pady=(12, 4))
@@ -313,11 +378,20 @@ class CameraDebugGui:
         root.after(300, self._tick)
 
     def _settings_from_ui(self) -> CameraSettings:
-        return CameraSettings(
+        settings = CameraSettings(
             auto_exposure=bool(self.auto_exposure.get()),
             power_line_frequency=1,
-            **{name: int(round(variable.get())) for name, variable in self.variables.items()},
+            **{
+                name: int(round(variable.get()))
+                for name, variable in self.variables.items()
+            },
+            **{
+                name: float(variable.get()) / 100.0
+                for name, variable in self.roi_variables.items()
+            },
         )
+        settings.validate()
+        return settings
 
     def _sync_exposure_state(self) -> None:
         state = "disabled" if self.auto_exposure.get() else "normal"
@@ -354,6 +428,8 @@ class CameraDebugGui:
         self.auto_exposure.set(defaults.auto_exposure)
         for name, variable in self.variables.items():
             variable.set(getattr(defaults, name))
+        for name, variable in self.roi_variables.items():
+            variable.set(float(getattr(defaults, name)) * 100.0)
         self._sync_exposure_state()
         self._apply()
 
@@ -369,7 +445,7 @@ class CameraDebugGui:
                         "｜".join(f"{name}={value}" for name, value in actual.items())
                     )
                     self._actual_loaded = True
-                self._diagnostics = self.processor.process(frame)
+                self._diagnostics = self.processor.process(frame, self._settings_from_ui())
                 self.status.set(self._diagnostics.message)
                 self._render_selected()
             except Exception as exc:

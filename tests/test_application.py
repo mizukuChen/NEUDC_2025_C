@@ -13,6 +13,7 @@ from src.application import (
     _draw_a4_location,
     _normal_summary,
 )
+from src.camera_settings import CameraSettings
 from src.vision.measure import Measurement, MeasurementResult
 from src.vision.measurement_tasks import NormalMeasurementResult
 from src.vision.fisheye import FisheyeCalibration
@@ -20,6 +21,20 @@ from src.vision.rectify import rectify_a4
 
 
 class ApplicationPresentationTest(unittest.TestCase):
+    def test_camera_roi_uses_all_four_saved_boundaries(self) -> None:
+        application = MeasurementApplication()
+        settings = CameraSettings(
+            roi_left=0.1,
+            roi_top=0.2,
+            roi_right=0.8,
+            roi_bottom=0.9,
+        )
+        with patch("src.application.load_camera_settings", return_value=settings):
+            self.assertEqual(
+                application._camera_roi_pixels(1000, 500),
+                (100, 100, 800, 450),
+            )
+
     def test_persistent_camera_buffer_returns_three_frames(self) -> None:
         capture = Mock()
         capture.isOpened.return_value = True

@@ -6,5 +6,9 @@
   "contrast": 34,
   "gamma": 100,
   "sharpness": 6,
-  "power_line_frequency": 1
+  "power_line_frequency": 1,
+  "roi_left": 0.3333333333333333,
+  "roi_top": 0.0,
+  "roi_right": 0.6666666666666666,
+  "roi_bottom": 1.0
 }

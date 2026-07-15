@@ -25,6 +25,10 @@ class CameraSettings:
     gamma: int = 100
     sharpness: int = 6
     power_line_frequency: int = 1
+    roi_left: float = 1.0 / 3.0
+    roi_top: float = 0.0
+    roi_right: float = 2.0 / 3.0
+    roi_bottom: float = 1.0
 
     def validate(self) -> None:
         ranges = {
@@ -40,6 +44,27 @@ class CameraSettings:
             value = int(getattr(self, name))
             if not minimum <= value <= maximum:
                 raise ValueError(f"{name} must be between {minimum} and {maximum}.")
+        boundaries = {
+            "roi_left": float(self.roi_left),
+            "roi_top": float(self.roi_top),
+            "roi_right": float(self.roi_right),
+            "roi_bottom": float(self.roi_bottom),
+        }
+        if any(not 0.0 <= value <= 1.0 for value in boundaries.values()):
+            raise ValueError("ROI 边界必须位于画面范围 0～1 内")
+        if not self.roi_left < self.roi_right or not self.roi_top < self.roi_bottom:
+            raise ValueError("ROI 必须是左边界小于右边界、上边界小于下边界的正矩形")
+
+    def roi_pixels(self, width: int, height: int) -> tuple[int, int, int, int]:
+        """返回半开区间形式的像素 ROI：(left, top, right, bottom)。"""
+        if width < 1 or height < 1:
+            raise ValueError("图像尺寸必须为正数")
+        self.validate()
+        left = min(width - 1, max(0, round(self.roi_left * width)))
+        top = min(height - 1, max(0, round(self.roi_top * height)))
+        right = min(width, max(left + 1, round(self.roi_right * width)))
+        bottom = min(height, max(top + 1, round(self.roi_bottom * height)))
+        return left, top, right, bottom
 
 
 def load_camera_settings(path: Path = DEFAULT_CAMERA_SETTINGS_PATH) -> CameraSettings:

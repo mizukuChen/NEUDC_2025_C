@@ -322,11 +322,11 @@ class MeasurementApplication:
         self,
         fisheye_path: Path = DEFAULT_FISHEYE,
         distance_path: Path = DEFAULT_DISTANCE,
-        strip_fraction: float = 1 / 3,
+        strip_fraction: float | None = None,
         max_reprojection_px: float = 2.0,
         camera_settings_path: Path = DEFAULT_CAMERA_SETTINGS_PATH,
     ) -> None:
-        if not 0 < strip_fraction <= 1:
+        if strip_fraction is not None and not 0 < strip_fraction <= 1:
             raise ValueError("strip_fraction must be in (0, 1].")
         self.fisheye_path = Path(fisheye_path)
         self.distance_path = Path(distance_path)
@@ -341,6 +341,15 @@ class MeasurementApplication:
             tuple[int, int],
             tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
         ] = {}
+
+    def _camera_roi_pixels(self, width: int, height: int) -> tuple[int, int, int, int]:
+        """读取现场配置的矩形ROI；显式旧参数仅用于兼容历史调用。"""
+        if self.strip_fraction is not None:
+            roi_width = round(width * self.strip_fraction)
+            left = (width - roi_width) // 2
+            return left, 0, left + roi_width, height
+        settings = load_camera_settings(self.camera_settings_path)
+        return settings.roi_pixels(width, height)
 
     def _load(self):
         if self._fisheye is None:
@@ -557,12 +566,11 @@ class MeasurementApplication:
             interpolation=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
         )
-        strip_width = round(width * self.strip_fraction)
-        left = (width - strip_width) // 2
-        strip = undistorted[:, left : left + strip_width]
-        plane = find_target_plane(strip)
+        left, top, right, bottom = self._camera_roi_pixels(width, height)
+        roi = undistorted[top:bottom, left:right]
+        plane = find_target_plane(roi)
 
-        preview = rectify_a4(strip, plane.corners, 80, 112)
+        preview = rectify_a4(roi, plane.corners, 80, 112)
         gray = cv2.cvtColor(preview, cv2.COLOR_BGR2GRAY)
         margin_x = max(2, round(gray.shape[1] * 0.07))
         margin_y = max(2, round(gray.shape[0] * 0.07))
@@ -575,7 +583,7 @@ class MeasurementApplication:
             cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
         )
         normalized = plane.corners.astype(np.float32) / np.asarray(
-            [strip.shape[1], strip.shape[0]],
+            [roi.shape[1], roi.shape[0]],
             dtype=np.float32,
         )
         return CameraSceneSignature(normalized, binary > 0)
@@ -591,12 +599,11 @@ class MeasurementApplication:
         fisheye, correction = self._load()
         undistorted = undistort_fisheye_image(raw, fisheye)
         height, width = undistorted.shape[:2]
-        strip_width = round(width * self.strip_fraction)
-        left = (width - strip_width) // 2
-        strip = undistorted[:, left : left + strip_width]
-        plane = find_target_plane(strip)
+        left, top, right, bottom = self._camera_roi_pixels(width, height)
+        roi = undistorted[top:bottom, left:right]
+        plane = find_target_plane(roi)
         full_corners = plane.corners.astype(np.float64)
-        full_corners[:, 0] += left
+        full_corners += np.asarray([left, top], dtype=np.float64)
         distance = estimate_plane_center_depth(
             full_corners,
             undistorted_camera_matrix(fisheye, (width, height)),
@@ -607,7 +614,7 @@ class MeasurementApplication:
                 f"A4 定位重投影误差过大：{distance.reprojection_error_px:.2f} px"
             )
 
-        rectified = rectify_a4(strip, plane.corners)
+        rectified = rectify_a4(roi, plane.corners)
         if mode == "normal":
             plane_angle = _plane_axis_angle_deg(distance.rvec)
             tilted = _is_tilted_plane(plane_angle)
@@ -683,12 +690,11 @@ class MeasurementApplication:
             interpolation=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
         )
-        strip_width = round(width * self.strip_fraction)
-        left = (width - strip_width) // 2
-        strip = undistorted_latest[:, left : left + strip_width]
-        plane = find_target_plane(strip)
+        left, top, right, bottom = self._camera_roi_pixels(width, height)
+        roi = undistorted_latest[top:bottom, left:right]
+        plane = find_target_plane(roi)
         full_corners = plane.corners.astype(np.float64)
-        full_corners[:, 0] += left
+        full_corners += np.asarray([left, top], dtype=np.float64)
         rectified_frames = self._direct_rectify_frames(
             arrays,
             full_corners,
