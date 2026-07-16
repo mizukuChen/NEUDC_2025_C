@@ -46,6 +46,7 @@ HELP_TEXT = """相机环境调试使用说明
 5. 建议优先使用自动曝光。需要固定画面时关闭自动曝光，再调曝光时间；画面仍暗时才提高增益。
 6. 对比度过高会损失边缘层次，锐度过高会产生双边和LSD伪线。通常保持默认值即可。
 7. “自动调参”会尝试少量候选参数，重点抑制数字边缘和双边缘；调参期间进度条会显示当前阶段，完成后自动应用并保存最高分配置。
+8. ROI参数会立即用当前画面重新诊断；曝光、对比度、锐度等相机参数会自动应用，并等待新帧后刷新预览。
 
 按钮说明
 • 临时应用：立即作用于当前相机，本次退出后不改变正式测量配置。
@@ -167,6 +168,7 @@ class DebugCameraWorker:
         self._capture = None
         self._latest: np.ndarray | None = None
         self._error: str | None = None
+        self._frame_id = 0
         self._mutex = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="camera-debug-capture", daemon=True)
@@ -179,9 +181,13 @@ class DebugCameraWorker:
         if self._thread.is_alive():
             self._thread.join(timeout=3.0)
 
-    def latest(self) -> tuple[np.ndarray | None, str | None]:
+    def latest(self) -> tuple[np.ndarray | None, str | None, int]:
         with self._mutex:
-            return (None if self._latest is None else self._latest.copy(), self._error)
+            return (
+                None if self._latest is None else self._latest.copy(),
+                self._error,
+                self._frame_id,
+            )
 
     def apply(self, settings: CameraSettings) -> dict[str, int]:
         settings.validate()
@@ -194,6 +200,8 @@ class DebugCameraWorker:
                 device_path(self.camera_index),
             )
             self.settings = settings
+            self._latest = None
+            self._error = None
         return read_camera_controls(device_path(self.camera_index))
 
     def _run(self) -> None:
@@ -217,6 +225,7 @@ class DebugCameraWorker:
                     if not ok or frame is None:
                         self._error = "找不到camera"
                         break
+                    self._frame_id += 1
                     self._latest = frame
                     self._error = None
         except Exception as exc:
@@ -253,6 +262,13 @@ class CameraDebugGui:
         self._diagnostics: CameraDiagnostics | None = None
         self._actual_loaded = False
         self._auto_tuning = False
+        self._suspend_auto_apply = True
+        self._pending_apply_job: object | None = None
+        self._pending_roi_job: object | None = None
+        self._auto_apply_running = False
+        self._force_render = False
+        self._awaiting_new_frame = False
+        self._last_rendered_frame_id = -1
 
         root.title("2025 电赛 C 题相机环境调试")
         root.geometry("1180x720")
@@ -284,7 +300,7 @@ class CameraDebugGui:
             camera_panel,
             text="自动曝光",
             variable=self.auto_exposure,
-            command=self._sync_exposure_state,
+            command=self._on_auto_exposure_changed,
         ).pack(anchor=tk.W, pady=(0, 8))
 
         self.variables: dict[str, object] = {}
@@ -315,6 +331,9 @@ class CameraDebugGui:
             self.variables[name] = variable
             self.widgets[name] = (scale, spin)
 
+        for variable in self.variables.values():
+            variable.trace_add("write", lambda *_args: self._schedule_hardware_apply())
+
         self.roi_variables: dict[str, object] = {}
         for name, label in (
             ("roi_left", "左边界"),
@@ -343,6 +362,10 @@ class CameraDebugGui:
                 format="%.1f",
             ).pack(side=tk.RIGHT)
             self.roi_variables[name] = variable
+
+        for variable in self.roi_variables.values():
+            variable.trace_add("write", lambda *_args: self._schedule_roi_refresh())
+
         ttk.Label(
             roi_panel,
             text="四条边界均按完整画面的百分比保存；只要求左<右、上<下。",
@@ -401,6 +424,7 @@ class CameraDebugGui:
         self.notebook.bind("<<NotebookTabChanged>>", lambda _event: self._render_selected())
 
         self._sync_exposure_state()
+        self._suspend_auto_apply = False
         self.worker.start()
         root.protocol("WM_DELETE_WINDOW", self._close)
         root.after(300, self._tick)
@@ -426,6 +450,75 @@ class CameraDebugGui:
         for widget in self.widgets.get("exposure_time_absolute", ()):
             widget.configure(state=state)
 
+    def _on_auto_exposure_changed(self) -> None:
+        self._sync_exposure_state()
+        self._schedule_hardware_apply()
+
+    def _schedule_hardware_apply(self) -> None:
+        if self._suspend_auto_apply:
+            return
+        if self._pending_apply_job is not None:
+            self.root.after_cancel(self._pending_apply_job)
+        self.status.set("相机参数已修改，准备自动应用……")
+        self._pending_apply_job = self.root.after(180, self._start_auto_apply)
+
+    def _start_auto_apply(self) -> None:
+        self._pending_apply_job = None
+        if self._auto_tuning or self._auto_apply_running:
+            self._schedule_hardware_apply()
+            return
+        try:
+            settings = self._settings_from_ui()
+        except Exception as exc:
+            self.status.set(f"参数无效：{exc}")
+            return
+        self._auto_apply_running = True
+        self.status.set("正在应用相机参数，等待新画面……")
+        threading.Thread(
+            target=self._auto_apply_worker,
+            args=(settings,),
+            name="camera-debug-auto-apply",
+            daemon=True,
+        ).start()
+
+    def _auto_apply_worker(self, settings: CameraSettings) -> None:
+        try:
+            actual = self.worker.apply(settings)
+        except Exception as exc:
+            self.root.after(0, self._finish_auto_apply, settings, None, str(exc))
+            return
+        self.root.after(0, self._finish_auto_apply, settings, actual, None)
+
+    def _finish_auto_apply(
+        self,
+        settings: CameraSettings,
+        actual: dict[str, int] | None,
+        error: str | None,
+    ) -> None:
+        self._auto_apply_running = False
+        if error is not None:
+            self.status.set(f"自动应用失败：{error}")
+            return
+        self.settings = settings
+        if actual is not None:
+            self.actual.set("｜".join(f"{name}={value}" for name, value in actual.items()))
+        self._awaiting_new_frame = True
+        self.status.set("相机参数已应用，等待新帧刷新预览……")
+
+    def _schedule_roi_refresh(self) -> None:
+        if self._suspend_auto_apply:
+            return
+        self._force_render = True
+        if self._pending_roi_job is not None:
+            self.root.after_cancel(self._pending_roi_job)
+        self.status.set("ROI已修改，正在用当前画面重新诊断……")
+        self._pending_roi_job = self.root.after(60, self._refresh_current_frame)
+
+    def _refresh_current_frame(self) -> None:
+        self._pending_roi_job = None
+        self._force_render = True
+        self._update_preview()
+
     def _apply(self) -> bool:
         from tkinter import messagebox
 
@@ -437,6 +530,8 @@ class CameraDebugGui:
             return False
         self.settings = settings
         self.actual.set("｜".join(f"{name}={value}" for name, value in actual.items()))
+        self._awaiting_new_frame = True
+        self.status.set("参数已应用，等待新帧刷新预览……")
         return True
 
     def _save(self) -> None:
@@ -453,21 +548,21 @@ class CameraDebugGui:
 
     def _reset(self) -> None:
         defaults = CameraSettings()
-        self.auto_exposure.set(defaults.auto_exposure)
-        for name, variable in self.variables.items():
-            variable.set(getattr(defaults, name))
-        for name, variable in self.roi_variables.items():
-            variable.set(float(getattr(defaults, name)) * 100.0)
-        self._sync_exposure_state()
+        self._set_ui_settings(defaults)
         self._apply()
 
     def _set_ui_settings(self, settings: CameraSettings) -> None:
-        self.auto_exposure.set(settings.auto_exposure)
-        for name, variable in self.variables.items():
-            variable.set(getattr(settings, name))
-        for name, variable in self.roi_variables.items():
-            variable.set(float(getattr(settings, name)) * 100.0)
-        self._sync_exposure_state()
+        previous = self._suspend_auto_apply
+        self._suspend_auto_apply = True
+        try:
+            self.auto_exposure.set(settings.auto_exposure)
+            for name, variable in self.variables.items():
+                variable.set(getattr(settings, name))
+            for name, variable in self.roi_variables.items():
+                variable.set(float(getattr(settings, name)) * 100.0)
+            self._sync_exposure_state()
+        finally:
+            self._suspend_auto_apply = previous
 
     def _set_auto_tune_progress(self, percent: float, message: str) -> None:
         self.auto_tune_progress.set(percent)
@@ -496,6 +591,7 @@ class CameraDebugGui:
             self._set_auto_tune_progress(100.0, f"最佳参数保存失败：{exc}")
             return
         self.actual.set("｜".join(f"{name}={value}" for name, value in actual.items()))
+        self._awaiting_new_frame = True
         detail = "；".join(
             f"锐度{item.settings.sharpness}: {item.metrics.score:.0f}"
             for item in evaluations
@@ -536,7 +632,7 @@ class CameraDebugGui:
                     f"{prefix}｜等待相机稳定",
                 )
                 time.sleep(1.6)
-                frame, error = self.worker.latest()
+                frame, error, _frame_id = self.worker.latest()
                 if error is not None:
                     metrics = AutoTuneMetrics(
                         ok=False,
@@ -571,11 +667,13 @@ class CameraDebugGui:
         except Exception as exc:
             self.root.after(0, self._finish_auto_tune, None, [], str(exc))
 
-    def _tick(self) -> None:
-        frame, error = self.worker.latest()
+    def _update_preview(self) -> None:
+        frame, error, frame_id = self.worker.latest()
         if error:
             self.status.set(error)
         elif frame is not None:
+            if frame_id == self._last_rendered_frame_id and not self._force_render:
+                return
             try:
                 if not self._actual_loaded:
                     actual = read_camera_controls(device_path(self.worker.camera_index))
@@ -584,11 +682,20 @@ class CameraDebugGui:
                     )
                     self._actual_loaded = True
                 self._diagnostics = self.processor.process(frame, self._settings_from_ui())
-                self.status.set(self._diagnostics.message)
+                message = self._diagnostics.message
+                if self._awaiting_new_frame:
+                    message = f"{message}｜预览已更新"
+                    self._awaiting_new_frame = False
+                self.status.set(message)
+                self._last_rendered_frame_id = frame_id
+                self._force_render = False
                 self._render_selected()
             except Exception as exc:
                 self.status.set(f"诊断失败：{exc}")
-        self.root.after(500, self._tick)
+
+    def _tick(self) -> None:
+        self._update_preview()
+        self.root.after(200, self._tick)
 
     def _render_selected(self) -> None:
         if self._diagnostics is None:
