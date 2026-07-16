@@ -136,6 +136,8 @@ class SilentRecognitionManager:
             if not self._enabled or not self._trusted or self._analysis is None:
                 return None
             analysis = self._analysis
+        if mode == "numbered" and getattr(analysis, "numbered_squares", None) is None:
+            return None
         return self.application.result_from_camera_analysis(analysis, mode, digit)
 
     def measure(self, mode: str, digit: int | None = None) -> Any:
@@ -166,6 +168,12 @@ class SilentRecognitionManager:
                             self._scene = current
                             self._miss_count = 0
                     if still_valid:
+                        if mode == "numbered" and getattr(analysis, "numbered_squares", None) is None:
+                            return self.application.process_camera_frames(
+                                frames,
+                                mode,
+                                digit,
+                            )
                         return self.application.result_from_camera_analysis(
                             analysis,
                             mode,
@@ -208,7 +216,7 @@ class SilentRecognitionManager:
             try:
                 analysis = self.application.analyze_camera_frames(
                     frames,
-                    recognize_digits=True,
+                    recognize_digits=False,
                 )
                 latest = self.application.buffered_camera_frames(timeout_s=1.0)
                 latest_signature = self.application.probe_camera_frame(latest[-1])

@@ -12,6 +12,7 @@ from src.silent_recognition import SilentRecognitionManager
 
 
 VIEW_INPUT = "输入图像"
+VIEW_TARGET = "目标量"
 VIEW_LOCATION = "A4 定位"
 VIEW_RECTIFIED = "校正后的 A4"
 VIEW_RESULT = "识别结果"
@@ -146,22 +147,51 @@ class MeasurementGui:
         self.status.configure(yscrollcommand=scrollbar.set)
         self.status.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.status.bind("<MouseWheel>", self._scroll_status)
+        self.status.bind("<Button-4>", self._scroll_status)
+        self.status.bind("<Button-5>", self._scroll_status)
 
         self.notebook = ttk.Notebook(preview)
         self.notebook.pack(expand=True, fill=tk.BOTH)
         self.image_labels: dict[str, object] = {}
         self.tab_frames: dict[str, object] = {}
-        for title in (VIEW_INPUT, VIEW_LOCATION, VIEW_RECTIFIED, VIEW_RESULT):
+        self.target_text = None
+        for title in (VIEW_INPUT, VIEW_TARGET, VIEW_LOCATION, VIEW_RECTIFIED, VIEW_RESULT):
             frame = ttk.Frame(self.notebook)
-            label = ttk.Label(frame, text="等待图像", anchor=tk.CENTER)
-            label.pack(expand=True, fill=tk.BOTH)
+            if title == VIEW_TARGET:
+                target_frame = ttk.Frame(frame, padding=10)
+                target_frame.pack(expand=True, fill=tk.BOTH)
+                target = tk.Text(
+                    target_frame,
+                    wrap=tk.WORD,
+                    font=("sans", 13),
+                    relief=tk.FLAT,
+                    padx=8,
+                    pady=8,
+                )
+                target_scrollbar = ttk.Scrollbar(
+                    target_frame,
+                    orient=tk.VERTICAL,
+                    command=target.yview,
+                )
+                target.configure(yscrollcommand=target_scrollbar.set)
+                target.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
+                target_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+                target.bind("<MouseWheel>", self._scroll_text)
+                target.bind("<Button-4>", self._scroll_text)
+                target.bind("<Button-5>", self._scroll_text)
+                self.target_text = target
+            else:
+                label = ttk.Label(frame, text="等待图像", anchor=tk.CENTER)
+                label.pack(expand=True, fill=tk.BOTH)
+                self.image_labels[title] = label
             self.notebook.add(frame, text=title)
             self.tab_frames[title] = frame
-            self.image_labels[title] = label
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         self._set_status("请选择识别模式，然后开始测量。")
         self._sync_mode()
+        self._update_target_quantity()
         self.application.start_camera(camera_index, width, height)
         self.silent_recognition.start()
         root.protocol("WM_DELETE_WINDOW", self._close)
@@ -174,6 +204,56 @@ class MeasurementGui:
         self.status.insert("1.0", message)
         self.status.configure(state=tk.DISABLED)
 
+    def _scroll_text(self, event) -> str:
+        widget = event.widget
+        if getattr(event, "num", None) == 4:
+            widget.yview_scroll(-3, "units")
+        elif getattr(event, "num", None) == 5:
+            widget.yview_scroll(3, "units")
+        else:
+            delta = getattr(event, "delta", 0)
+            widget.yview_scroll(int(-1 * (delta / 120)), "units")
+        return "break"
+
+    def _scroll_status(self, event) -> str:
+        return self._scroll_text(event)
+
+    def _update_target_quantity(self) -> None:
+        import tkinter as tk
+
+        if getattr(self, "target_text", None) is None:
+            return
+        mode = self.mode.get()
+        digit = self.digit.get().strip()
+        if mode == "numbered":
+            target_digit = digit if digit in "0123456789" and len(digit) == 1 else "0～9"
+            lines = [
+                "当前目标量：发挥（3）数字识别",
+                "",
+                f"输入：目标数字 {target_digit}",
+                "输出：与输入数字相同的正方形边长 x，单位 mm。",
+                "",
+                "处理约定：先完成 A4 定位和方块几何检测，再在检测到的正方形内识别数字；只选择数字与输入一致的目标方块。",
+                "",
+                "距离 D：沿用普通测量的距离估计，可在识别状态中查看；题目核心输出量是目标方块尺寸 x。",
+            ]
+        else:
+            lines = [
+                "当前目标量：普通识别",
+                "",
+                "基础部分：识别单个圆形、三角形或正方形，输出目标尺寸 x，单位 mm；同时给出目标距离 D。",
+                "",
+                "发挥（1）（2）：识别多个分离或重叠正方形，输出目标正方形尺寸 x，单位 mm；带数字的正方形仍按普通正方形处理。",
+                "",
+                "发挥（4）：A4 绕竖直轴倾斜时，识别正方形并输出边长 x；此场景不要求输出距离 D。",
+                "",
+                "识别状态区会列出当前布局、检测到的全部目标、选中目标尺寸和 A4 定位误差。",
+            ]
+        self.target_text.configure(state=tk.NORMAL)
+        self.target_text.delete("1.0", tk.END)
+        self.target_text.insert("1.0", "\n".join(lines))
+        self.target_text.configure(state=tk.DISABLED)
+
     def _sync_mode(self) -> None:
         state = "normal" if self.mode.get() == "numbered" else "disabled"
         self.entry.configure(state=state)
@@ -182,12 +262,14 @@ class MeasurementGui:
         if state == "normal":
             self.entry.focus_set()
             self.entry.selection_range(0, "end")
+        self._update_target_quantity()
         self._sync_silent_request()
 
     def _select_digit(self, digit: int) -> None:
         self.digit.set(str(digit))
         self.entry.focus_set()
         self.entry.selection_range(0, "end")
+        self._update_target_quantity()
         self._sync_silent_request()
 
     def _sync_silent_request(self) -> None:
@@ -195,6 +277,7 @@ class MeasurementGui:
             return
         mode = self.mode.get()
         value = self.digit.get().strip()
+        self._update_target_quantity()
         if mode == "numbered" and (len(value) != 1 or value not in "0123456789"):
             return
         self.silent_recognition.set_request(
