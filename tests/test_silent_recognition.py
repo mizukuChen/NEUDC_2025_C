@@ -47,7 +47,8 @@ def scene_analysis(numbered: object | None = None) -> CameraSceneAnalysis:
         reprojection_error_px=1.0,
         plane_axis_angle_deg=90.0,
         input_image=np.zeros((8, 12, 3), dtype=np.uint8),
-        located_a4=np.zeros((8, 12, 3), dtype=np.uint8),
+        undistorted_image=np.zeros((8, 12, 3), dtype=np.uint8),
+        a4_corners=np.zeros((4, 2), dtype=np.float64),
         rectified_a4=np.zeros((594, 420, 3), dtype=np.uint8),
     )
 

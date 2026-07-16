@@ -10,12 +10,9 @@ import numpy as np
 from src.application import (
     CameraFrameBuffer,
     MeasurementApplication,
-    _draw_a4_location,
-    _normal_summary,
 )
 from src.hardware.camera_settings import CameraSettings
 from src.vision.measure import Measurement, MeasurementResult
-from src.vision.measurement_tasks import NormalMeasurementResult
 from src.vision.fisheye import FisheyeCalibration
 from src.vision.rectify import rectify_a4
 
@@ -177,30 +174,9 @@ class ApplicationPresentationTest(unittest.TestCase):
         self.assertEqual(len(measure.call_args.args[0]), 3)
         self.assertEqual(result.x_mm, 60.0)
         self.assertIsNone(result.distance_mm)
-        self.assertIn("发挥（4）倾斜物面", result.summary)
-        self.assertIn("目标距离：发挥（4）不要求输出", result.summary)
+        self.assertTrue(result.tilted_plane)
         self.assertEqual(result.rectified_a4.shape[:2], (594, 420))
         np.testing.assert_array_equal(result.input_image, raw_frames[-1])
-
-    def test_normal_summary_is_chinese_and_lists_all_targets(self) -> None:
-        first = Measurement("square", 50.0, (60.0, 80.0), 0.0, 1.0, "contour")
-        second = Measurement("square", 70.0, (140.0, 180.0), 5.0, 1.0, "contour")
-        geometry = MeasurementResult((first, second), "separate", 10.0, 1.0)
-        task = NormalMeasurementResult(1500.0, geometry, first, first.x_mm)
-        summary = _normal_summary(task, 0.25)
-        self.assertIn("识别成功", summary)
-        self.assertIn("多个分离目标", summary)
-        self.assertIn("2 个正方形", summary)
-        self.assertIn("50.00 mm", summary)
-        self.assertIn("70.00 mm", summary)
-
-    def test_a4_location_draws_green_outline(self) -> None:
-        image = np.zeros((120, 160, 3), dtype=np.uint8)
-        corners = np.asarray([[20, 20], [140, 20], [140, 100], [20, 100]], dtype=np.float64)
-        debug = _draw_a4_location(image, corners)
-        self.assertEqual(debug.shape, image.shape)
-        self.assertGreater(int(np.count_nonzero(debug[:, :, 1])), 0)
-        self.assertEqual(int(np.count_nonzero(image)), 0)
 
 
 if __name__ == "__main__":

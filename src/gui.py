@@ -8,6 +8,7 @@ import cv2
 from PIL import Image
 
 from src.application import DEFAULT_DISTANCE, DEFAULT_FISHEYE, MeasurementApplication
+from src.display.measurement import build_measurement_view
 from src.silent_recognition import SilentRecognitionManager
 
 
@@ -311,30 +312,6 @@ class MeasurementGui:
             ]
         self._set_target_text("\n".join(lines))
 
-    def _set_target_result(self, result) -> None:
-        distance = (
-            f"{result.distance_mm:.1f} mm"
-            if result.distance_mm is not None
-            else "不要求输出/未测量"
-        )
-        if result.mode == "numbered":
-            lines = [
-                "目标量：识别成功",
-                f"模式：数字识别，目标数字 {self.digit.get().strip()}",
-                f"目标方块尺寸 x：{result.x_mm:.2f} mm",
-                f"目标距离 D：{distance}",
-                f"A4 定位误差：{result.reprojection_error_px:.2f} px",
-            ]
-        else:
-            lines = [
-                "目标量：识别成功",
-                "模式：普通识别",
-                f"目标尺寸 x：{result.x_mm:.2f} mm",
-                f"目标距离 D：{distance}",
-                f"A4 定位误差：{result.reprojection_error_px:.2f} px",
-            ]
-        self._set_target_text("\n".join(lines))
-
     def _sync_mode(self) -> None:
         state = "normal" if self.mode.get() == "numbered" else "disabled"
         self.entry.configure(state=state)
@@ -476,17 +453,18 @@ class MeasurementGui:
 
     def _success(self, result) -> None:
         self._idle()
+        view = build_measurement_view(result)
         self._pending_views.update(
             {
-                VIEW_INPUT: result.input_image,
-                VIEW_LOCATION: result.located_a4,
-                VIEW_RECTIFIED: result.rectified_a4,
+                VIEW_INPUT: view.input_image,
+                VIEW_LOCATION: view.located_a4,
+                VIEW_RECTIFIED: view.rectified_a4,
             }
         )
-        self._show_image(VIEW_RESULT, result.annotated_a4)
+        self._show_image(VIEW_RESULT, view.annotated_a4)
         self.notebook.select(self.tab_frames[VIEW_RESULT])
-        self._set_status(result.summary)
-        self._set_target_result(result)
+        self._set_status(view.summary)
+        self._set_target_text(view.target_text)
 
     def _on_tab_changed(self, _event=None) -> None:
         selected = self.notebook.select()

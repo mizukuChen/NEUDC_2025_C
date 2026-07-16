@@ -10,13 +10,14 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from src.application import DEFAULT_DISTANCE, DEFAULT_FISHEYE, MeasurementApplication, _draw_a4_location
+from src.application import DEFAULT_DISTANCE, DEFAULT_FISHEYE, MeasurementApplication
 from src.camera_auto_tune import (
     AutoTuneEvaluation,
     AutoTuneMetrics,
     auto_tune_candidates,
     evaluate_camera_health,
 )
+from src.display.measurement import draw_a4_location
 from src.hardware.camera_settings import (
     DEFAULT_CAMERA_SETTINGS_PATH,
     CameraDeviceLock,
@@ -147,7 +148,7 @@ class DiagnosticProcessor:
             plane = find_target_plane(roi)
             full_corners = plane.corners.astype(np.float64)
             full_corners += np.asarray([left, top], dtype=np.float64)
-            located = _draw_a4_location(undistorted, full_corners)
+            located = draw_a4_location(undistorted, full_corners)
             cv2.rectangle(
                 located,
                 (left, top),
