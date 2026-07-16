@@ -4,12 +4,19 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import threading
+import time
 
 import cv2
 import numpy as np
 from PIL import Image
 
 from src.application import DEFAULT_DISTANCE, DEFAULT_FISHEYE, MeasurementApplication, _draw_a4_location
+from src.camera_auto_tune import (
+    AutoTuneEvaluation,
+    AutoTuneMetrics,
+    auto_tune_candidates,
+    evaluate_camera_health,
+)
 from src.camera_settings import (
     DEFAULT_CAMERA_SETTINGS_PATH,
     CameraDeviceLock,
@@ -38,6 +45,7 @@ HELP_TEXT = """相机环境调试使用说明
 4. 重点查看“拉直后的A4”和“黑色概率图”：黑框及目标边缘应连续，白纸不应变黑，数字笔画不能粘连或消失。
 5. 建议优先使用自动曝光。需要固定画面时关闭自动曝光，再调曝光时间；画面仍暗时才提高增益。
 6. 对比度过高会损失边缘层次，锐度过高会产生双边和LSD伪线。通常保持默认值即可。
+7. “自动调参”会尝试少量候选参数，重点抑制数字边缘和双边缘；调参期间进度条会显示当前阶段，完成后自动应用并保存最高分配置。
 
 按钮说明
 • 临时应用：立即作用于当前相机，本次退出后不改变正式测量配置。
@@ -244,6 +252,7 @@ class CameraDebugGui:
         self._photo = None
         self._diagnostics: CameraDiagnostics | None = None
         self._actual_loaded = False
+        self._auto_tuning = False
 
         root.title("2025 电赛 C 题相机环境调试")
         root.geometry("1180x720")
@@ -349,6 +358,25 @@ class CameraDebugGui:
             side=tk.LEFT, expand=True, fill=tk.X, padx=(3, 0)
         )
         ttk.Button(controls, text="恢复默认值", command=self._reset).pack(fill=tk.X, pady=4)
+        self.auto_tune_button = ttk.Button(
+            controls,
+            text="自动调参",
+            command=self._start_auto_tune,
+        )
+        self.auto_tune_button.pack(fill=tk.X, pady=(4, 2))
+        self.auto_tune_progress = tk.DoubleVar(value=0.0)
+        ttk.Progressbar(
+            controls,
+            variable=self.auto_tune_progress,
+            maximum=100.0,
+        ).pack(fill=tk.X, pady=(0, 2))
+        self.auto_tune_status = tk.StringVar(value="自动调参：待启动")
+        ttk.Label(
+            controls,
+            textvariable=self.auto_tune_status,
+            wraplength=310,
+            foreground="#555555",
+        ).pack(anchor=tk.W, fill=tk.X)
 
         ttk.Label(controls, text="相机实际值", font=("sans", 12, "bold")).pack(
             anchor=tk.W, pady=(12, 4)
@@ -432,6 +460,116 @@ class CameraDebugGui:
             variable.set(float(getattr(defaults, name)) * 100.0)
         self._sync_exposure_state()
         self._apply()
+
+    def _set_ui_settings(self, settings: CameraSettings) -> None:
+        self.auto_exposure.set(settings.auto_exposure)
+        for name, variable in self.variables.items():
+            variable.set(getattr(settings, name))
+        for name, variable in self.roi_variables.items():
+            variable.set(float(getattr(settings, name)) * 100.0)
+        self._sync_exposure_state()
+
+    def _set_auto_tune_progress(self, percent: float, message: str) -> None:
+        self.auto_tune_progress.set(percent)
+        self.auto_tune_status.set(message)
+
+    def _finish_auto_tune(
+        self,
+        best: AutoTuneEvaluation | None,
+        evaluations: list[AutoTuneEvaluation],
+        error: str | None = None,
+    ) -> None:
+        self._auto_tuning = False
+        self.auto_tune_button.configure(state="normal")
+        if error is not None:
+            self._set_auto_tune_progress(0.0, f"自动调参失败：{error}")
+            return
+        if best is None:
+            self._set_auto_tune_progress(0.0, "自动调参失败：没有可用候选")
+            return
+        self._set_ui_settings(best.settings)
+        self.settings = best.settings
+        try:
+            actual = self.worker.apply(best.settings)
+            save_camera_settings(best.settings, self.settings_path)
+        except Exception as exc:
+            self._set_auto_tune_progress(100.0, f"最佳参数保存失败：{exc}")
+            return
+        self.actual.set("｜".join(f"{name}={value}" for name, value in actual.items()))
+        detail = "；".join(
+            f"锐度{item.settings.sharpness}: {item.metrics.score:.0f}"
+            for item in evaluations
+            if item.metrics.ok
+        )
+        self._set_auto_tune_progress(
+            100.0,
+            f"自动调参完成：锐度 {best.settings.sharpness}｜{best.metrics.message}｜{detail}",
+        )
+
+    def _start_auto_tune(self) -> None:
+        if self._auto_tuning:
+            return
+        self._auto_tuning = True
+        self.auto_tune_button.configure(state="disabled")
+        self._set_auto_tune_progress(0.0, "自动调参：准备候选参数")
+        threading.Thread(target=self._run_auto_tune, name="camera-auto-tune", daemon=True).start()
+
+    def _run_auto_tune(self) -> None:
+        try:
+            base = self._settings_from_ui()
+            candidates = auto_tune_candidates(base)
+            evaluations: list[AutoTuneEvaluation] = []
+            total = max(1, len(candidates))
+            for index, settings in enumerate(candidates, 1):
+                prefix = f"自动调参：{index}/{total} 锐度 {settings.sharpness}"
+                self.root.after(
+                    0,
+                    self._set_auto_tune_progress,
+                    (index - 1) / total * 100.0,
+                    f"{prefix}｜正在应用参数",
+                )
+                self.worker.apply(settings)
+                self.root.after(
+                    0,
+                    self._set_auto_tune_progress,
+                    (index - 0.7) / total * 100.0,
+                    f"{prefix}｜等待相机稳定",
+                )
+                time.sleep(1.6)
+                frame, error = self.worker.latest()
+                if error is not None:
+                    metrics = AutoTuneMetrics(
+                        ok=False,
+                        score=-1.0,
+                        message=f"相机错误：{error}",
+                    )
+                elif frame is None:
+                    metrics = AutoTuneMetrics(
+                        ok=False,
+                        score=-1.0,
+                        message="相机暂时没有画面",
+                    )
+                else:
+                    self.root.after(
+                        0,
+                        self._set_auto_tune_progress,
+                        (index - 0.35) / total * 100.0,
+                        f"{prefix}｜计算算法健康度",
+                    )
+                    metrics = evaluate_camera_health(frame, settings, self.processor.application)
+                evaluation = AutoTuneEvaluation(settings, metrics)
+                evaluations.append(evaluation)
+                self.root.after(
+                    0,
+                    self._set_auto_tune_progress,
+                    index / total * 100.0,
+                    f"{prefix}｜{metrics.message}",
+                )
+            usable = [item for item in evaluations if item.metrics.ok]
+            best = max(usable, key=lambda item: item.metrics.score) if usable else None
+            self.root.after(0, self._finish_auto_tune, best, evaluations, None)
+        except Exception as exc:
+            self.root.after(0, self._finish_auto_tune, None, [], str(exc))
 
     def _tick(self) -> None:
         frame, error = self.worker.latest()
