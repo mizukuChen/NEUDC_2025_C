@@ -7,12 +7,12 @@ from pathlib import Path
 import cv2
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.vision.fisheye import load_fisheye_calibration, undistort_fisheye_image
-from src.vision.measure_basic import draw_basic_measurement_debug, measure_basic_shape
+from archive.src.vision.measure_basic import draw_basic_measurement_debug, measure_basic_shape
 from src.vision.rectify import rectify_a4
 from src.vision.target_plane import draw_target_plane_debug, find_target_plane
 

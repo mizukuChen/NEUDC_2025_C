@@ -190,25 +190,9 @@ python scripts/targets/generate_augmented_dataset.py \
 
 分别生成不同尺寸/角度的单正方形，以及用于打印检查的正向单编号方块；两者都复用公共方块与数字渲染模块。
 
-### `targets/generate_basic_targets.py`
-
-生成基础圆形、三角形和正方形的 A4 PDF 与 PNG。
-
-### `targets/generate_advanced_targets.py`
-
-生成单正方形、分离多正方形和编号正方形的 A4 PDF 与 PNG。旧版重叠正方形预设已经移除，新重叠图统一由 `generate_overlap_squares.py` 生成。
-
-### `targets/generate_targets_a3.py`
-
-把基础及高级 A4 目标排版到 A3 页面中央并生成 PDF。该脚本目前仍包含旧版 overlap 预设，使用前应更新或将其归档。
-
 ### `targets/generate_print_selection_a3.py`
 
 从当前模块化生成系统的标准 A4 PNG 中选取少量代表性目标，以真实 210×297 mm 尺寸居中嵌入竖版 A3（297×420 mm），输出一个多页打印 PDF 和对应页码 JSON 清单。A4 四周因此分别保留 43.5 mm 与 61.5 mm 的 A3 余量，避免打印机不可打印边缘裁掉 A4 黑框。
-
-### `targets/merge_target_pdfs.py`
-
-把多张 A4 目标 PDF 合并为一个便于打印的多页 PDF。当前列表仍引用旧 overlap PDF，使用前应更新。
 
 ## 已归档脚本
 
@@ -227,7 +211,7 @@ archive/scripts/basic_measure/
 - `run_basic_measure.py`：旧版单图基础测量入口；
 - `run_basic_measure_fisheye.py`：旧版带鱼眼去畸变的单图入口。
 
-它们依赖旧模块 `src/vision/measure_basic.py`，仅用于历史复现，不属于当前主线。
+它们依赖归档模块 `archive/src/vision/measure_basic.py`，仅用于历史复现，不属于当前主线。
 
 旧树莓派预览脚本位于：
 

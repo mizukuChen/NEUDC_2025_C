@@ -8,11 +8,11 @@ from pathlib import Path
 import cv2
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.vision.measure_basic import measure_basic_shape
+from archive.src.vision.measure_basic import measure_basic_shape
 from src.vision.rectify import rectify_a4
 from src.vision.target_plane import find_target_plane
 

@@ -103,7 +103,7 @@ scripts/start_camera_debug.sh
 
 ```bash
 cp ~/NUEDC_2025_C/archive/src/camera_preview.py ~/nailong/camera_preview.py
-cp ~/NUEDC_2025_C/src/capture.py ~/nailong/capture.py
+cp ~/NUEDC_2025_C/archive/src/capture.py ~/nailong/capture.py
 ```
 
 不要在 WSL 中执行 `source ~/nailong/pi_cv/bin/activate`，因为它会把树莓派虚拟环境的符号链接解析为 WSL 本机路径。
@@ -218,10 +218,13 @@ python scripts/evaluation/evaluate_controlled_overlap.py
 在 WSL 开发环境执行：
 
 ```bash
-python scripts/targets/generate_basic_targets.py
-python scripts/targets/generate_advanced_targets.py
-python scripts/targets/merge_target_pdfs.py
-python scripts/targets/generate_targets_a3.py
+python scripts/targets/generate_single_shapes.py
+python scripts/targets/generate_single_squares.py
+python scripts/targets/generate_separate_squares.py
+python scripts/targets/generate_overlap_squares.py
+python scripts/targets/generate_numbered_squares.py
+python scripts/targets/generate_numbered_overlap_squares.py
+python scripts/targets/generate_print_selection_a3.py
 python scripts/calibration/generate_chessboard_a3.py
 ```
 

@@ -9,8 +9,7 @@ import cv2
 
 
 SCRIPT_PATH = Path(__file__).resolve()
-# 自动向上溯源，找到项目的物理根目录
-ROOT = SCRIPT_PATH.parents[1] if SCRIPT_PATH.parent.name == "src" else SCRIPT_PATH.parent
+ROOT = SCRIPT_PATH.parents[2]
 # 默认拍摄照片的输出保存目录
 DEFAULT_OUTPUT_DIR = ROOT / "runtime" / "captures" / "rpi"
 

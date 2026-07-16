@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""已归档的旧版单图形测量实现。"""
+
 """
 历史遗留/已归档的基础形状测量模块。
 
