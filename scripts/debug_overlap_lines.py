@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import src.vision.measure_overlap as overlap
+import src.vision.overlap.standard as overlap
 from scripts.targets.generate_overlap_squares import PRESETS
 
 # 调试标注使用的调色盘（BGR 格式），用于区分绘制不同的直线和正方形候选

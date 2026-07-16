@@ -9,7 +9,7 @@ import numpy as np
 from src.application import MeasurementApplication
 from src.camera_settings import CameraSettings
 from src.vision.lowres_preprocess import estimate_black_probability
-from src.vision.measure_overlap_lowres import reconstruct_low_resolution_squares
+from src.vision.overlap.lowres import reconstruct_low_resolution_squares
 from src.vision.rectify import rectify_a4
 from src.vision.target_plane import find_target_plane
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""低分辨率、多帧融合重叠正方形重建。"""
+
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from itertools import combinations

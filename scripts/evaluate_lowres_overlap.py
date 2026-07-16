@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.vision.measure_overlap_lowres import (
+from src.vision.overlap.lowres import (
     draw_low_resolution_squares,
     reconstruct_low_resolution_squares,
 )

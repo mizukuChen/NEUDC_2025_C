@@ -19,7 +19,7 @@ from scripts.targets.generate_overlap_squares import (
     edge_coverage_ratios,
     render,
 )
-from src.vision.measure_overlap import reconstruct_overlapping_squares
+from src.vision.overlap.standard import reconstruct_overlapping_squares
 
 
 class OverlapMeasurementTest(unittest.TestCase):

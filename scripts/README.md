@@ -15,7 +15,8 @@
 读取一张已经完成 A4 透视校正的图像，调用统一入口 `src/vision/measure.py`。统一入口根据完整轮廓对黑色前景的解释率，自动选择：
 
 - `measure_shapes.py`：圆形、三角形和完整轮廓正方形；
-- `measure_overlap.py`：实心重叠多正方形。
+- `overlap/standard.py`：高分辨率标准图中的实心重叠多正方形。
+- `overlap/lowres.py`：相机低分辨率、多帧融合的重叠多正方形。
 
 终端输出中的 `source` 会标明结果来自 `contour` 或 `overlap_lines`，标注图写入 `runtime/debug/`。
 
@@ -47,7 +48,7 @@
 
 ### `evaluate_controlled_overlap.py`
 
-调用 `src/vision/measure_overlap.py` 检测所有受控重叠图，并与 JSON ground truth 一一匹配，比较：
+调用 `src/vision/overlap/standard.py` 检测所有受控重叠图，并与 JSON ground truth 一一匹配，比较：
 
 - 正方形数量；
 - 边长误差；
@@ -60,7 +61,7 @@
 
 ### `evaluate_lowres_overlap.py`
 
-在上述低分辨率三帧数据集上评估独立的 `measure_overlap_lowres.py`：统计方块数量、尺寸、中心和角度误差，并在几何数量正确时继续检查带数字方块的 HOG+SVM 识别。失败样本标注图写入 `runtime/debug/lowres_overlap_eval/`。
+在上述低分辨率三帧数据集上评估独立的 `overlap/lowres.py`：统计方块数量、尺寸、中心和角度误差，并在几何数量正确时继续检查带数字方块的 HOG+SVM 识别。失败样本标注图写入 `runtime/debug/lowres_overlap_eval/`。
 
 低分辨率重叠检测采用“宽松生成、严格验证”：分别从每一帧和三帧融合图提取 LSD 线段，用联合拟合残差桥接同一物理边两端的短线段，并在共同法向量下计算平行边距；候选合并后，再回到融合图检查四边支持、至少两条强边、边界内侧黑色概率、多帧来源和 `0.70` 总置信度。融合图和三张单帧的 LSD 候选提取并行执行，但候选仍按固定来源顺序合并，阈值与最终选择逻辑不变。算法仍保存在独立模块中，但已由正式相机测量入口按“完整轮廓优先、重叠重建兜底”的方式调用。
 

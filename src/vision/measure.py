@@ -5,9 +5,9 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from src.vision.measure_overlap import reconstruct_overlapping_squares
+from src.vision.overlap.standard import reconstruct_overlapping_squares
 from src.vision.lowres_preprocess import prepare_low_resolution_a4
-from src.vision.measure_overlap_lowres import reconstruct_low_resolution_squares
+from src.vision.overlap.lowres import reconstruct_low_resolution_squares
 from src.vision.measure_shapes import (
     A4_HEIGHT_MM, A4_WIDTH_MM, BORDER_WIDTH_MM, CONTENT_MARGIN_MM,
     ShapeMeasurementResult, measure_shapes,

@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.vision.measure_overlap import draw_overlap_measurements, reconstruct_overlapping_squares
+from src.vision.overlap.standard import draw_overlap_measurements, reconstruct_overlapping_squares
 
 
 def _angle_error(first: float, second: float) -> float:

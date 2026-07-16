@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""高分辨率、单帧重叠正方形重建。"""
+
 from dataclasses import dataclass
 from itertools import combinations
 from math import atan2, cos, degrees, hypot, pi, sin

@@ -18,7 +18,7 @@ from src.vision.lowres_preprocess import (
     WORK_WIDTH_PX,
     prepare_low_resolution_a4,
 )
-from src.vision.measure_overlap_lowres import reconstruct_low_resolution_squares
+from src.vision.overlap.lowres import reconstruct_low_resolution_squares
 
 
 class LowResolutionOverlapTest(unittest.TestCase):
