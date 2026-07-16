@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+"""树莓派相机环境调试界面。"""
+
 import argparse
-from dataclasses import dataclass
 from pathlib import Path
 import threading
 import time
@@ -10,27 +11,22 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from src.application import DEFAULT_DISTANCE, DEFAULT_FISHEYE, MeasurementApplication
+from src.application import DEFAULT_DISTANCE, DEFAULT_FISHEYE
 from src.camera_auto_tune import (
     AutoTuneEvaluation,
     AutoTuneMetrics,
     auto_tune_candidates,
     evaluate_camera_health,
 )
-from src.display.measurement import draw_a4_location
+from src.display.camera_diagnostics import CameraDiagnostics, DiagnosticProcessor
 from src.hardware.camera_settings import (
     DEFAULT_CAMERA_SETTINGS_PATH,
     CameraDeviceLock,
     CameraSettings,
-    apply_camera_controls,
-    device_path,
     load_camera_settings,
-    read_camera_controls,
     save_camera_settings,
 )
-from src.vision.lowres_preprocess import estimate_black_probability
-from src.vision.rectify import rectify_a4
-from src.vision.target_plane import find_target_plane
+from src.hardware.debug_camera import DebugCameraWorker
 
 
 VIEW_FULL = "去畸变完整画面"
@@ -59,245 +55,6 @@ HELP_TEXT = """相机环境调试使用说明
 • 黑白差值建议明显大于20；小于20时识别会判定对比度不足。
 • 过暗/过曝比例过高表示灰度已经剪切，应优先调整曝光而不是修改识别阈值。
 """
-
-
-@dataclass(frozen=True)
-class CameraDiagnostics:
-    full: np.ndarray
-    located: np.ndarray
-    rectified: np.ndarray
-    probability: np.ndarray
-    message: str
-
-
-@dataclass(frozen=True)
-class CachedPreviewFrame:
-    frame_id: int
-    size: tuple[int, int]
-    undistorted: np.ndarray
-    dark_ratio: float
-    bright_ratio: float
-
-
-class DiagnosticProcessor:
-    def __init__(self, fisheye_path: Path, distance_path: Path) -> None:
-        self.application = MeasurementApplication(fisheye_path, distance_path)
-        self._fisheye = None
-        self._map_cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
-        self._preview_cache: CachedPreviewFrame | None = None
-
-    def _undistortion_maps(self, width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
-        key = (width, height)
-        cached = self._map_cache.get(key)
-        if cached is not None:
-            return cached
-        if self._fisheye is None:
-            self._fisheye, _ = self.application._load()
-        fixed, interpolation, _, _, _ = self.application._camera_undistortion_maps(
-            self._fisheye,
-            key,
-        )
-        self._map_cache[key] = (fixed, interpolation)
-        return fixed, interpolation
-
-    def _preprocess(self, raw: np.ndarray, frame_id: int | None) -> CachedPreviewFrame:
-        height, width = raw.shape[:2]
-        size = (width, height)
-        if (
-            frame_id is not None
-            and self._preview_cache is not None
-            and self._preview_cache.frame_id == frame_id
-            and self._preview_cache.size == size
-        ):
-            return self._preview_cache
-        fixed, interpolation = self._undistortion_maps(width, height)
-        undistorted = cv2.remap(
-            raw,
-            fixed,
-            interpolation,
-            cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-        )
-        gray = cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY)
-        preview = CachedPreviewFrame(
-            frame_id=-1 if frame_id is None else frame_id,
-            size=size,
-            undistorted=undistorted,
-            dark_ratio=float(np.mean(gray <= 5)) * 100.0,
-            bright_ratio=float(np.mean(gray >= 250)) * 100.0,
-        )
-        if frame_id is not None:
-            self._preview_cache = preview
-        return preview
-
-    def process(
-        self,
-        raw: np.ndarray,
-        settings: CameraSettings,
-        frame_id: int | None = None,
-    ) -> CameraDiagnostics:
-        preview = self._preprocess(raw, frame_id)
-        undistorted = preview.undistorted
-        height, width = raw.shape[:2]
-        left, top, right, bottom = settings.roi_pixels(width, height)
-        # ROI是在去畸变坐标系中裁剪的，因此调试预览也必须使用同一图像，
-        # 否则鱼眼原图上的直线框并不对应算法真正搜索的区域。
-        full = self.preview_full(raw, settings, frame_id)
-        roi = undistorted[top:bottom, left:right]
-        try:
-            plane = find_target_plane(roi)
-            full_corners = plane.corners.astype(np.float64)
-            full_corners += np.asarray([left, top], dtype=np.float64)
-            located = draw_a4_location(undistorted, full_corners)
-            cv2.rectangle(
-                located,
-                (left, top),
-                (right - 1, bottom - 1),
-                (255, 180, 0),
-                3,
-                cv2.LINE_AA,
-            )
-            rectified = rectify_a4(roi, plane.corners, 420, 594)
-            probability, black, white = estimate_black_probability(rectified)
-            probability_u8 = np.rint(probability * 255.0).astype(np.uint8)
-            probability_bgr = cv2.cvtColor(probability_u8, cv2.COLOR_GRAY2BGR)
-            message = (
-                f"A4定位成功｜黑框灰度 {black:.1f}｜白纸灰度 {white:.1f}｜"
-                f"黑白差 {white - black:.1f}｜ROI {right-left}×{bottom-top}px｜"
-                f"过暗 {preview.dark_ratio:.2f}%｜过曝 {preview.bright_ratio:.2f}%"
-            )
-        except Exception as exc:
-            located = undistorted.copy()
-            cv2.rectangle(
-                located,
-                (left, top),
-                (right - 1, bottom - 1),
-                (255, 180, 0),
-                3,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                located,
-                "A4 NOT FOUND",
-                (30, 60),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.4,
-                (0, 0, 255),
-                4,
-                cv2.LINE_AA,
-            )
-            rectified = np.full((594, 420, 3), 235, dtype=np.uint8)
-            probability_bgr = np.full_like(rectified, 235)
-            message = (
-                f"A4定位失败：{exc}｜过暗 {preview.dark_ratio:.2f}%｜"
-                f"过曝 {preview.bright_ratio:.2f}%"
-            )
-        return CameraDiagnostics(full, located, rectified, probability_bgr, message)
-
-    def preview_full(
-        self,
-        raw: np.ndarray,
-        settings: CameraSettings,
-        frame_id: int | None = None,
-    ) -> np.ndarray:
-        preview = self._preprocess(raw, frame_id)
-        undistorted = preview.undistorted
-        height, width = raw.shape[:2]
-        left, top, right, bottom = settings.roi_pixels(width, height)
-        full = undistorted.copy()
-        cv2.rectangle(
-            full,
-            (left, top),
-            (right - 1, bottom - 1),
-            (255, 180, 0),
-            3,
-            cv2.LINE_AA,
-        )
-        return full
-
-
-class DebugCameraWorker:
-    def __init__(
-        self,
-        camera_index: int,
-        width: int,
-        height: int,
-        settings: CameraSettings,
-    ) -> None:
-        self.camera_index = camera_index
-        self.width = width
-        self.height = height
-        self.settings = settings
-        self._capture = None
-        self._latest: np.ndarray | None = None
-        self._error: str | None = None
-        self._frame_id = 0
-        self._mutex = threading.Lock()
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, name="camera-debug-capture", daemon=True)
-
-    def start(self) -> None:
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        if self._thread.is_alive():
-            self._thread.join(timeout=3.0)
-
-    def latest(self) -> tuple[np.ndarray | None, str | None, int]:
-        with self._mutex:
-            return (
-                None if self._latest is None else self._latest.copy(),
-                self._error,
-                self._frame_id,
-            )
-
-    def apply(self, settings: CameraSettings) -> dict[str, int]:
-        settings.validate()
-        with self._mutex:
-            if self._capture is None:
-                raise RuntimeError(self._error or "找不到camera")
-            apply_camera_controls(
-                self._capture,
-                settings,
-                device_path(self.camera_index),
-            )
-            self.settings = settings
-            self._latest = None
-            self._error = None
-        return read_camera_controls(device_path(self.camera_index))
-
-    def _run(self) -> None:
-        capture = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)
-        if not capture.isOpened():
-            capture.release()
-            with self._mutex:
-                self._error = "找不到camera"
-            return
-        try:
-            capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUYV"))
-            capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-            capture.set(cv2.CAP_PROP_FPS, 5)
-            apply_camera_controls(capture, self.settings, device_path(self.camera_index))
-            with self._mutex:
-                self._capture = capture
-            while not self._stop.is_set():
-                with self._mutex:
-                    ok, frame = capture.read()
-                    if not ok or frame is None:
-                        self._error = "找不到camera"
-                        break
-                    self._frame_id += 1
-                    self._latest = frame
-                    self._error = None
-        except Exception as exc:
-            with self._mutex:
-                self._error = str(exc)
-        finally:
-            with self._mutex:
-                self._capture = None
-            capture.release()
 
 
 class CameraDebugGui:

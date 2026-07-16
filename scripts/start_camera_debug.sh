@@ -22,7 +22,7 @@ fi
 
 cd "${ROOT_DIR}"
 printf '\n[%s] starting camera debug GUI\n' "$(date '+%Y-%m-%d %H:%M:%S')" >>"${LOG_FILE}"
-exec "${PYTHON}" -m src.camera_debug \
+exec "${PYTHON}" -m src.ui.camera_debug_gui \
     --camera-index 0 \
     --width 1920 \
     --height 1080 \
