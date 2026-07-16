@@ -69,17 +69,47 @@ class CameraDiagnostics:
     message: str
 
 
+@dataclass(frozen=True)
+class CachedPreviewFrame:
+    frame_id: int
+    size: tuple[int, int]
+    undistorted: np.ndarray
+    dark_ratio: float
+    bright_ratio: float
+
+
 class DiagnosticProcessor:
     def __init__(self, fisheye_path: Path, distance_path: Path) -> None:
         self.application = MeasurementApplication(fisheye_path, distance_path)
+        self._fisheye = None
+        self._map_cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+        self._preview_cache: CachedPreviewFrame | None = None
 
-    def process(self, raw: np.ndarray, settings: CameraSettings) -> CameraDiagnostics:
-        fisheye, _ = self.application._load()
-        height, width = raw.shape[:2]
+    def _undistortion_maps(self, width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
+        key = (width, height)
+        cached = self._map_cache.get(key)
+        if cached is not None:
+            return cached
+        if self._fisheye is None:
+            self._fisheye, _ = self.application._load()
         fixed, interpolation, _, _, _ = self.application._camera_undistortion_maps(
-            fisheye,
-            (width, height),
+            self._fisheye,
+            key,
         )
+        self._map_cache[key] = (fixed, interpolation)
+        return fixed, interpolation
+
+    def _preprocess(self, raw: np.ndarray, frame_id: int | None) -> CachedPreviewFrame:
+        height, width = raw.shape[:2]
+        size = (width, height)
+        if (
+            frame_id is not None
+            and self._preview_cache is not None
+            and self._preview_cache.frame_id == frame_id
+            and self._preview_cache.size == size
+        ):
+            return self._preview_cache
+        fixed, interpolation = self._undistortion_maps(width, height)
         undistorted = cv2.remap(
             raw,
             fixed,
@@ -87,6 +117,27 @@ class DiagnosticProcessor:
             cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
         )
+        gray = cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY)
+        preview = CachedPreviewFrame(
+            frame_id=-1 if frame_id is None else frame_id,
+            size=size,
+            undistorted=undistorted,
+            dark_ratio=float(np.mean(gray <= 5)) * 100.0,
+            bright_ratio=float(np.mean(gray >= 250)) * 100.0,
+        )
+        if frame_id is not None:
+            self._preview_cache = preview
+        return preview
+
+    def process(
+        self,
+        raw: np.ndarray,
+        settings: CameraSettings,
+        frame_id: int | None = None,
+    ) -> CameraDiagnostics:
+        preview = self._preprocess(raw, frame_id)
+        undistorted = preview.undistorted
+        height, width = raw.shape[:2]
         left, top, right, bottom = settings.roi_pixels(width, height)
         # ROI是在去畸变坐标系中裁剪的，因此调试预览也必须使用同一图像，
         # 否则鱼眼原图上的直线框并不对应算法真正搜索的区域。
@@ -100,9 +151,6 @@ class DiagnosticProcessor:
             cv2.LINE_AA,
         )
         roi = undistorted[top:bottom, left:right]
-        gray = cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY)
-        dark_ratio = float(np.mean(gray <= 5)) * 100.0
-        bright_ratio = float(np.mean(gray >= 250)) * 100.0
         try:
             plane = find_target_plane(roi)
             full_corners = plane.corners.astype(np.float64)
@@ -123,7 +171,7 @@ class DiagnosticProcessor:
             message = (
                 f"A4定位成功｜黑框灰度 {black:.1f}｜白纸灰度 {white:.1f}｜"
                 f"黑白差 {white - black:.1f}｜ROI {right-left}×{bottom-top}px｜"
-                f"过暗 {dark_ratio:.2f}%｜过曝 {bright_ratio:.2f}%"
+                f"过暗 {preview.dark_ratio:.2f}%｜过曝 {preview.bright_ratio:.2f}%"
             )
         except Exception as exc:
             located = undistorted.copy()
@@ -148,7 +196,8 @@ class DiagnosticProcessor:
             rectified = np.full((594, 420, 3), 235, dtype=np.uint8)
             probability_bgr = np.full_like(rectified, 235)
             message = (
-                f"A4定位失败：{exc}｜过暗 {dark_ratio:.2f}%｜过曝 {bright_ratio:.2f}%"
+                f"A4定位失败：{exc}｜过暗 {preview.dark_ratio:.2f}%｜"
+                f"过曝 {preview.bright_ratio:.2f}%"
             )
         return CameraDiagnostics(full, located, rectified, probability_bgr, message)
 
@@ -512,7 +561,7 @@ class CameraDebugGui:
         if self._pending_roi_job is not None:
             self.root.after_cancel(self._pending_roi_job)
         self.status.set("ROI已修改，正在用当前画面重新诊断……")
-        self._pending_roi_job = self.root.after(60, self._refresh_current_frame)
+        self._pending_roi_job = self.root.after(15, self._refresh_current_frame)
 
     def _refresh_current_frame(self) -> None:
         self._pending_roi_job = None
@@ -675,14 +724,20 @@ class CameraDebugGui:
             if frame_id == self._last_rendered_frame_id and not self._force_render:
                 return
             try:
+                started = time.perf_counter()
                 if not self._actual_loaded:
                     actual = read_camera_controls(device_path(self.worker.camera_index))
                     self.actual.set(
                         "｜".join(f"{name}={value}" for name, value in actual.items())
                     )
                     self._actual_loaded = True
-                self._diagnostics = self.processor.process(frame, self._settings_from_ui())
-                message = self._diagnostics.message
+                self._diagnostics = self.processor.process(
+                    frame,
+                    self._settings_from_ui(),
+                    frame_id=frame_id,
+                )
+                elapsed_ms = (time.perf_counter() - started) * 1000.0
+                message = f"{self._diagnostics.message}｜诊断 {elapsed_ms:.0f}ms"
                 if self._awaiting_new_frame:
                     message = f"{message}｜预览已更新"
                     self._awaiting_new_frame = False
