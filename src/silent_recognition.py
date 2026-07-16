@@ -81,6 +81,7 @@ class SilentRecognitionManager:
         self._trusted = False
         self._analysis: CameraSceneAnalysis | None = None
         self._recognizing = False
+        self._foreground_generation = 0
         self._last_frame: np.ndarray | None = None
         self._thread = threading.Thread(
             target=self._run,
@@ -139,14 +140,24 @@ class SilentRecognitionManager:
         return self.application.result_from_camera_analysis(analysis, mode, digit)
 
     def measure(self, mode: str, digit: int | None = None) -> Any:
-        """优先返回可信缓存；没有缓存时串行调用原相机识别流程。"""
+        """优先返回可信缓存；后台正忙时前台按钮不等待，直接识别当前帧。"""
         self.set_request(mode, digit)
         with self._condition:
             enabled = self._enabled
         if not enabled:
             frames = self.application.buffered_camera_frames()
             return self.application.process_camera_frames(frames, mode, digit)
-        with self._process_lock:
+        acquired = self._process_lock.acquire(blocking=False)
+        if not acquired:
+            with self._condition:
+                self._foreground_generation += 1
+                self._trusted = False
+                self._analysis = None
+                self._condition.notify_all()
+            self._publish("静默识别：按钮测量优先，正在跳过后台缓存")
+            frames = self.application.buffered_camera_frames()
+            return self.application.process_camera_frames(frames, mode, digit)
+        try:
             with self._condition:
                 analysis = (
                     self._analysis
@@ -179,6 +190,8 @@ class SilentRecognitionManager:
                     self._record_signature(current)
             result = self.application.process_camera_frames(frames, mode, digit)
             return result
+        finally:
+            self._process_lock.release()
 
     def run_exclusive(self, function: Callable[[], Any]) -> Any:
         """使文件识别不会与后台完整识别同时修改OpenCV全局线程设置。"""
@@ -210,6 +223,7 @@ class SilentRecognitionManager:
             self._publish("静默识别：正在后台识别")
             with self._condition:
                 self._recognizing = True
+                foreground_generation = self._foreground_generation
             try:
                 analysis = self.application.analyze_camera_frames(
                     frames,
@@ -222,8 +236,10 @@ class SilentRecognitionManager:
                 return
 
             with self._condition:
+                preempted = foreground_generation != self._foreground_generation
                 same_scene = (
                     self._enabled
+                    and not preempted
                     and self._scene is not None
                     and scene_signatures_similar(self._scene, latest_signature)
                 )
@@ -237,7 +253,13 @@ class SilentRecognitionManager:
                 self._recognizing = False
                 self._condition.notify_all()
             self._publish(
-                "静默识别：缓存已就绪" if same_scene else "静默识别：画面已变化"
+                "静默识别：缓存已就绪"
+                if same_scene
+                else (
+                    "静默识别：已让路给按钮测量"
+                    if preempted
+                    else "静默识别：画面已变化"
+                )
             )
         finally:
             with self._condition:

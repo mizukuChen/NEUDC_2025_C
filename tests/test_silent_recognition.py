@@ -180,6 +180,47 @@ class SilentRecognitionTest(unittest.TestCase):
         finally:
             manager._process_lock.release()
 
+    def test_enabled_button_measurement_does_not_wait_for_background_lock(self) -> None:
+        frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
+        expected = object()
+        application = Mock()
+        application.buffered_camera_frames.return_value = frames
+        application.process_camera_frames.return_value = expected
+        manager = SilentRecognitionManager(application)
+
+        self.assertTrue(manager._process_lock.acquire(blocking=False))
+        try:
+            self.assertIs(manager.measure("numbered", 7), expected)
+        finally:
+            manager._process_lock.release()
+
+        application.process_camera_frames.assert_called_once_with(frames, "numbered", 7)
+        self.assertIsNone(manager.cached_result("normal"))
+
+    def test_preempted_background_result_is_not_cached(self) -> None:
+        frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
+        analysis = object()
+        direct = object()
+        application = Mock()
+        application.buffered_camera_frames.side_effect = lambda **_kwargs: tuple(
+            frame.copy() for frame in frames
+        )
+        application.probe_camera_frame.return_value = signature()
+        application.process_camera_frames.return_value = direct
+        manager = SilentRecognitionManager(application, stable_observations=1)
+
+        def analyze_and_press_button(_frames, recognize_digits=True):
+            self.assertIs(manager.measure("normal"), direct)
+            return analysis
+
+        application.analyze_camera_frames.side_effect = analyze_and_press_button
+        application.result_from_camera_analysis.return_value = object()
+
+        manager.poll_once()
+
+        self.assertIsNone(manager.cached_result("normal"))
+        application.process_camera_frames.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
