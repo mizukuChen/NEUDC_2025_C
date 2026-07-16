@@ -8,10 +8,10 @@ import cv2
 import numpy as np
 
 from src.application import (
-    CameraFrameBuffer,
     MeasurementApplication,
 )
 from src.hardware.camera_settings import CameraSettings
+from src.hardware.camera_stream import CameraFrameBuffer, capture_frame, capture_frames
 from src.vision.measure import Measurement, MeasurementResult
 from src.vision.fisheye import FisheyeCalibration
 from src.vision.rectify import rectify_a4
@@ -44,7 +44,7 @@ class ApplicationPresentationTest(unittest.TestCase):
             return True, np.full((8, 12, 3), counter % 255, dtype=np.uint8)
 
         capture.read.side_effect = read
-        with patch("src.application.cv2.VideoCapture", return_value=capture):
+        with patch("src.hardware.camera_stream.cv2.VideoCapture", return_value=capture):
             buffer = CameraFrameBuffer(0, 1920, 1080, warmup_frames=0)
             buffer.start()
             frames = buffer.frames(timeout_s=1.0)
@@ -106,18 +106,18 @@ class ApplicationPresentationTest(unittest.TestCase):
     def test_missing_camera_has_required_message(self) -> None:
         capture = Mock()
         capture.isOpened.return_value = False
-        with patch("src.application.cv2.VideoCapture", return_value=capture):
+        with patch("src.hardware.camera_stream.cv2.VideoCapture", return_value=capture):
             with self.assertRaisesRegex(RuntimeError, "^找不到camera$"):
-                MeasurementApplication.capture_frame()
+                capture_frame()
         capture.release.assert_called_once()
 
     def test_disconnected_camera_frame_has_required_message(self) -> None:
         capture = Mock()
         capture.isOpened.return_value = True
         capture.read.return_value = (False, None)
-        with patch("src.application.cv2.VideoCapture", return_value=capture):
+        with patch("src.hardware.camera_stream.cv2.VideoCapture", return_value=capture):
             with self.assertRaisesRegex(RuntimeError, "^找不到camera$"):
-                MeasurementApplication.capture_frame()
+                capture_frame()
         capture.release.assert_called_once()
 
     def test_capture_frames_uses_three_stable_yuyv_frames(self) -> None:
@@ -126,8 +126,8 @@ class ApplicationPresentationTest(unittest.TestCase):
         capture.grab.return_value = True
         frames = [np.full((8, 12, 3), value, dtype=np.uint8) for value in (1, 2, 3)]
         capture.read.side_effect = [(True, frame) for frame in frames]
-        with patch("src.application.cv2.VideoCapture", return_value=capture) as video_capture:
-            actual = MeasurementApplication.capture_frames(warmup_frames=2)
+        with patch("src.hardware.camera_stream.cv2.VideoCapture", return_value=capture) as video_capture:
+            actual = capture_frames(warmup_frames=2)
         self.assertEqual(len(actual), 3)
         np.testing.assert_array_equal(actual[-1], frames[-1])
         self.assertEqual(capture.grab.call_count, 2)
