@@ -21,7 +21,7 @@ from src.vision.recognize_digits import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 MODEL = ROOT / "assets" / "models" / "digit_hog_linear_svm.npz"
 
 

@@ -11,7 +11,7 @@ import numpy as np
 from src.vision.linear_svm import LinearSvmModel, load_linear_svm, save_linear_svm
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 MODEL = ROOT / "assets" / "models" / "digit_hog_linear_svm.npz"
 
 
