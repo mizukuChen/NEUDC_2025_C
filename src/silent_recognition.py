@@ -129,7 +129,7 @@ class SilentRecognitionManager:
         with self._condition:
             cached = self._trusted and self._analysis is not None
         if cached:
-            self._publish("静默识别：缓存已就绪")
+            self._publish(self._cache_status(self._analysis))
 
     def cached_result(self, mode: str, digit: int | None = None) -> Any | None:
         """从同一份可信场景分析即时派生当前界面请求。"""
@@ -182,6 +182,8 @@ class SilentRecognitionManager:
                             self._scene = current
                             self._miss_count = 0
                     if still_valid:
+                        if mode == "numbered" and isinstance(analysis, CameraSceneAnalysis):
+                            analysis = self._ensure_digit_cache(analysis)
                         return self.application.result_from_camera_analysis(
                             analysis,
                             mode,
@@ -220,14 +222,14 @@ class SilentRecognitionManager:
             should_recognize = self._record_signature(signature)
             if not should_recognize:
                 return
-            self._publish("静默识别：正在后台识别")
+            self._publish("静默识别：正在生成几何缓存")
             with self._condition:
                 self._recognizing = True
                 foreground_generation = self._foreground_generation
             try:
                 analysis = self.application.analyze_camera_frames(
                     frames,
-                    recognize_digits=True,
+                    recognize_digits=False,
                 )
                 latest = self.application.buffered_camera_frames(timeout_s=1.0)
                 latest_signature = self.application.probe_camera_frame(latest[-1])
@@ -253,7 +255,7 @@ class SilentRecognitionManager:
                 self._recognizing = False
                 self._condition.notify_all()
             self._publish(
-                "静默识别：缓存已就绪"
+                "静默识别：几何缓存已就绪"
                 if same_scene
                 else (
                     "静默识别：已让路给按钮测量"
@@ -261,6 +263,8 @@ class SilentRecognitionManager:
                     else "静默识别：画面已变化"
                 )
             )
+            if same_scene and isinstance(analysis, CameraSceneAnalysis):
+                self._fill_digit_cache_if_stable(analysis, foreground_generation)
         finally:
             with self._condition:
                 if self._recognizing:
@@ -288,7 +292,8 @@ class SilentRecognitionManager:
                 )
             cached = self._analysis is not None
             should_recognize = self._trusted and not cached and not self._recognizing
-        self._publish("静默识别：缓存已就绪" if self._trusted and cached else status)
+            analysis = self._analysis
+        self._publish(self._cache_status(analysis) if self._trusted and cached else status)
         return should_recognize
 
     def _record_miss(self) -> None:
@@ -311,6 +316,74 @@ class SilentRecognitionManager:
         self._miss_count = 0
         self._trusted = False
         self._analysis = None
+
+    def _cache_status(self, analysis: CameraSceneAnalysis | None) -> str:
+        if isinstance(analysis, CameraSceneAnalysis) and analysis.numbered_squares is not None:
+            return "静默识别：数字缓存已就绪"
+        return "静默识别：几何缓存已就绪"
+
+    def _ensure_digit_cache(self, analysis: CameraSceneAnalysis) -> CameraSceneAnalysis:
+        if analysis.numbered_squares is not None:
+            return analysis
+        if not self.application.can_recognize_digits_from_analysis(analysis):
+            return analysis
+        self._publish("静默识别：正在补充数字缓存")
+        updated = self.application.recognize_digits_for_analysis(analysis)
+        with self._condition:
+            if self._analysis is analysis and self._enabled and self._trusted:
+                self._analysis = updated
+        self._publish(self._cache_status(updated))
+        return updated
+
+    def _fill_digit_cache_if_stable(
+        self,
+        analysis: CameraSceneAnalysis,
+        foreground_generation: int,
+    ) -> None:
+        if (
+            analysis.numbered_squares is not None
+            or not self.application.can_recognize_digits_from_analysis(analysis)
+        ):
+            return
+        self._publish("静默识别：正在补充数字缓存")
+        with self._condition:
+            self._recognizing = True
+        try:
+            updated = self.application.recognize_digits_for_analysis(analysis)
+            latest = self.application.buffered_camera_frames(timeout_s=1.0)
+            latest_signature = self.application.probe_camera_frame(latest[-1])
+        except Exception:
+            with self._condition:
+                self._recognizing = False
+                self._condition.notify_all()
+            self._publish("静默识别：数字缓存暂未就绪")
+            return
+
+        with self._condition:
+            preempted = foreground_generation != self._foreground_generation
+            same_scene = (
+                self._enabled
+                and not preempted
+                and self._trusted
+                and self._scene is not None
+                and self._analysis is analysis
+                and scene_signatures_similar(self._scene, latest_signature)
+            )
+            if same_scene:
+                self._scene = latest_signature
+                self._analysis = updated
+                self._miss_count = 0
+            self._recognizing = False
+            self._condition.notify_all()
+        self._publish(
+            "静默识别：数字缓存已就绪"
+            if same_scene
+            else (
+                "静默识别：已让路给按钮测量"
+                if preempted
+                else "静默识别：画面已变化，保留几何缓存"
+            )
+        )
 
     def _publish(self, status: str) -> None:
         if self._status_callback is not None:

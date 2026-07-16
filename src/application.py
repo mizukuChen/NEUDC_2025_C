@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import threading
 import time
@@ -733,6 +733,27 @@ class MeasurementApplication:
             located_a4=_draw_a4_location(undistorted_latest, full_corners),
             rectified_a4=measurement_image,
         )
+
+    def can_recognize_digits_from_analysis(self, analysis: CameraSceneAnalysis) -> bool:
+        """判断已有几何缓存是否足以补做数字识别。"""
+        return (
+            analysis.numbered_squares is None
+            and bool(analysis.geometry.shapes)
+            and all(item.shape_type == "square" for item in analysis.geometry.shapes)
+        )
+
+    def recognize_digits_for_analysis(
+        self,
+        analysis: CameraSceneAnalysis,
+    ) -> CameraSceneAnalysis:
+        """在不重跑A4定位/几何重建的情况下，为几何缓存补充数字识别结果。"""
+        if not self.can_recognize_digits_from_analysis(analysis):
+            return analysis
+        numbered_squares = recognize_numbered_squares(
+            analysis.rectified_a4,
+            analysis.geometry,
+        )
+        return replace(analysis, numbered_squares=numbered_squares)
 
     def result_from_camera_analysis(
         self,

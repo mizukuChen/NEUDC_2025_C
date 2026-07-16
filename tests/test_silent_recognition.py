@@ -6,8 +6,9 @@ from unittest.mock import Mock
 
 import numpy as np
 
-from src.application import CameraSceneSignature
+from src.application import CameraSceneAnalysis, CameraSceneSignature
 from src.silent_recognition import SilentRecognitionManager, scene_signatures_similar
+from src.vision.measure import Measurement, MeasurementResult
 
 
 def signature(value: int = 0) -> CameraSceneSignature:
@@ -20,6 +21,35 @@ def signature(value: int = 0) -> CameraSceneSignature:
     if value:
         mask[5:10, 5 + value : 10 + value] = True
     return CameraSceneSignature(corners, mask)
+
+
+def scene_analysis(numbered: object | None = None) -> CameraSceneAnalysis:
+    shape = Measurement(
+        "square",
+        80.0,
+        (105.0, 148.5),
+        0.0,
+        1.0,
+        "test",
+    )
+    geometry = MeasurementResult(
+        shapes=(shape,),
+        layout="single",
+        pixels_per_mm=2.0,
+        contour_foreground_coverage=1.0,
+        measurement_image=np.zeros((594, 420, 3), dtype=np.uint8),
+    )
+    numbered_squares = None if numbered is None else (numbered,)
+    return CameraSceneAnalysis(
+        geometry=geometry,
+        numbered_squares=numbered_squares,
+        corrected_distance_mm=1000.0,
+        reprojection_error_px=1.0,
+        plane_axis_angle_deg=90.0,
+        input_image=np.zeros((8, 12, 3), dtype=np.uint8),
+        located_a4=np.zeros((8, 12, 3), dtype=np.uint8),
+        rectified_a4=np.zeros((594, 420, 3), dtype=np.uint8),
+    )
 
 
 class SilentRecognitionTest(unittest.TestCase):
@@ -98,6 +128,62 @@ class SilentRecognitionTest(unittest.TestCase):
 
         application.analyze_camera_frames.assert_called_once()
         application.process_camera_frames.assert_not_called()
+
+    def test_background_builds_geometry_cache_before_digit_cache(self) -> None:
+        frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
+        geometry_only = scene_analysis()
+        with_digits = scene_analysis(numbered=object())
+        application = Mock()
+        application.buffered_camera_frames.side_effect = lambda **_kwargs: tuple(
+            frame.copy() for frame in frames
+        )
+        application.probe_camera_frame.return_value = signature()
+        application.analyze_camera_frames.return_value = geometry_only
+        application.can_recognize_digits_from_analysis.return_value = True
+        application.recognize_digits_for_analysis.return_value = with_digits
+        application.result_from_camera_analysis.side_effect = (
+            lambda analysis, mode, digit=None: (analysis, mode, digit)
+        )
+        manager = SilentRecognitionManager(application, stable_observations=1)
+
+        manager.poll_once()
+
+        application.analyze_camera_frames.assert_called_once()
+        analyze_args, analyze_kwargs = application.analyze_camera_frames.call_args
+        self.assertEqual(len(analyze_args[0]), len(frames))
+        self.assertEqual(analyze_kwargs, {"recognize_digits": False})
+        application.recognize_digits_for_analysis.assert_called_once_with(geometry_only)
+        self.assertEqual(
+            manager.cached_result("numbered", 3),
+            (with_digits, "numbered", 3),
+        )
+
+    def test_numbered_button_completes_digit_cache_without_rebuilding_geometry(self) -> None:
+        frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
+        geometry_only = scene_analysis()
+        with_digits = scene_analysis(numbered=object())
+        application = Mock()
+        application.buffered_camera_frames.return_value = frames
+        application.probe_camera_frame.return_value = signature()
+        application.can_recognize_digits_from_analysis.return_value = True
+        application.recognize_digits_for_analysis.return_value = with_digits
+        application.result_from_camera_analysis.side_effect = (
+            lambda analysis, mode, digit=None: (analysis, mode, digit)
+        )
+        manager = SilentRecognitionManager(application, stable_observations=1)
+        manager._scene = signature()
+        manager._stable_count = 1
+        manager._trusted = True
+        manager._analysis = geometry_only
+
+        self.assertEqual(
+            manager.measure("numbered", 4),
+            (with_digits, "numbered", 4),
+        )
+
+        application.recognize_digits_for_analysis.assert_called_once_with(geometry_only)
+        application.process_camera_frames.assert_not_called()
+        application.analyze_camera_frames.assert_not_called()
 
     def test_button_revalidates_cached_scene_before_returning(self) -> None:
         frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
