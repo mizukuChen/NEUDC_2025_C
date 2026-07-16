@@ -133,24 +133,41 @@ class MeasurementGui:
         )
         status_frame = ttk.Frame(controls)
         status_frame.pack(expand=True, fill=tk.BOTH)
-        self.status = tk.Text(
+        self.status_canvas = tk.Canvas(
             status_frame,
-            wrap=tk.WORD,
-            width=30,
-            height=12,
-            font=("sans", 11),
+            width=280,
+            height=180,
             relief=tk.FLAT,
+            highlightthickness=0,
+        )
+        self.status_label = tk.Label(
+            self.status_canvas,
+            text="",
+            anchor=tk.NW,
+            justify=tk.LEFT,
+            font=("sans", 11),
             padx=6,
             pady=6,
+            wraplength=260,
         )
-        scrollbar = ttk.Scrollbar(status_frame, orient=tk.VERTICAL, command=self.status.yview)
-        self.status.configure(yscrollcommand=scrollbar.set)
-        self.status.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
+        self.status_window = self.status_canvas.create_window(
+            0,
+            0,
+            window=self.status_label,
+            anchor=tk.NW,
+        )
+        scrollbar = ttk.Scrollbar(status_frame, orient=tk.VERTICAL, command=self.status_canvas.yview)
+        self.status_canvas.configure(yscrollcommand=scrollbar.set)
+        self.status_canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.status.bind("<MouseWheel>", self._scroll_status)
-        self.status.bind("<Button-4>", self._scroll_status)
-        self.status.bind("<Button-5>", self._scroll_status)
-        self._bind_readonly_drag_scroll(self.status)
+        for widget in (self.status_canvas, self.status_label):
+            widget.bind("<MouseWheel>", self._scroll_status)
+            widget.bind("<Button-4>", self._scroll_status)
+            widget.bind("<Button-5>", self._scroll_status)
+            widget.bind("<ButtonPress-1>", self._start_status_drag)
+            widget.bind("<B1-Motion>", self._drag_status)
+            widget.bind("<ButtonRelease-1>", self._block_text_selection)
+        self.status_canvas.bind("<Configure>", self._resize_status_area)
 
         self.notebook = ttk.Notebook(preview)
         self.notebook.pack(expand=True, fill=tk.BOTH)
@@ -199,12 +216,15 @@ class MeasurementGui:
         root.protocol("WM_DELETE_WINDOW", self._close)
 
     def _set_status(self, message: str) -> None:
-        import tkinter as tk
+        self.status_label.configure(text=message)
+        self.status_canvas.yview_moveto(0.0)
+        self.root.after_idle(self._resize_status_area)
 
-        self.status.configure(state=tk.NORMAL)
-        self.status.delete("1.0", tk.END)
-        self.status.insert("1.0", message)
-        self.status.configure(state=tk.DISABLED)
+    def _resize_status_area(self, _event=None) -> None:
+        width = max(1, self.status_canvas.winfo_width() - 4)
+        self.status_canvas.itemconfigure(self.status_window, width=width)
+        self.status_label.configure(wraplength=max(1, width - 12))
+        self.status_canvas.configure(scrollregion=self.status_canvas.bbox("all"))
 
     def _scroll_text(self, event) -> str:
         widget = event.widget
@@ -218,7 +238,29 @@ class MeasurementGui:
         return "break"
 
     def _scroll_status(self, event) -> str:
-        return self._scroll_text(event)
+        if getattr(event, "num", None) == 4:
+            self.status_canvas.yview_scroll(-3, "units")
+        elif getattr(event, "num", None) == 5:
+            self.status_canvas.yview_scroll(3, "units")
+        else:
+            delta = getattr(event, "delta", 0)
+            self.status_canvas.yview_scroll(int(-1 * (delta / 120)), "units")
+        return "break"
+
+    def _status_canvas_xy(self, event) -> tuple[int, int]:
+        x = int(event.x_root - self.status_canvas.winfo_rootx())
+        y = int(event.y_root - self.status_canvas.winfo_rooty())
+        return x, y
+
+    def _start_status_drag(self, event) -> str:
+        x, y = self._status_canvas_xy(event)
+        self.status_canvas.scan_mark(x, y)
+        return "break"
+
+    def _drag_status(self, event) -> str:
+        x, y = self._status_canvas_xy(event)
+        self.status_canvas.scan_dragto(x, y, gain=1)
+        return "break"
 
     def _start_text_drag(self, event) -> str:
         event.widget.scan_mark(event.x, event.y)
