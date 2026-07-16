@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import ANY, Mock
+from unittest.mock import Mock
 
 import numpy as np
 
@@ -77,17 +77,15 @@ class SilentRecognitionTest(unittest.TestCase):
 
         application.analyze_camera_frames.assert_not_called()
 
-    def test_normal_mode_reuses_light_scene_analysis_and_numbered_mode_falls_back(self) -> None:
+    def test_mode_and_digit_changes_reuse_one_scene_analysis(self) -> None:
         frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
         analysis = object()
-        numbered = object()
         application = Mock()
         application.buffered_camera_frames.side_effect = lambda **_kwargs: tuple(
             frame.copy() for frame in frames
         )
         application.probe_camera_frame.return_value = signature()
         application.analyze_camera_frames.return_value = analysis
-        application.process_camera_frames.return_value = numbered
         application.result_from_camera_analysis.side_effect = (
             lambda _analysis, mode, digit=None: (mode, digit)
         )
@@ -95,14 +93,11 @@ class SilentRecognitionTest(unittest.TestCase):
         manager.poll_once()
 
         self.assertEqual(manager.measure("normal"), ("normal", None))
-        self.assertIsNone(manager.cached_result("numbered", 3))
-        self.assertIs(manager.measure("numbered", 3), numbered)
+        self.assertEqual(manager.measure("numbered", 3), ("numbered", 3))
+        self.assertEqual(manager.measure("numbered", 4), ("numbered", 4))
 
-        application.analyze_camera_frames.assert_called_once_with(
-            ANY,
-            recognize_digits=False,
-        )
-        application.process_camera_frames.assert_called_once_with(ANY, "numbered", 3)
+        application.analyze_camera_frames.assert_called_once()
+        application.process_camera_frames.assert_not_called()
 
     def test_button_revalidates_cached_scene_before_returning(self) -> None:
         frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
@@ -169,6 +164,21 @@ class SilentRecognitionTest(unittest.TestCase):
 
         self.assertIs(manager.measure("numbered", 4), expected)
         application.process_camera_frames.assert_called_once_with(frames, "numbered", 4)
+
+    def test_disabled_mode_does_not_wait_for_background_lock(self) -> None:
+        frames = tuple(np.zeros((8, 12, 3), dtype=np.uint8) for _ in range(3))
+        expected = object()
+        application = Mock()
+        application.buffered_camera_frames.return_value = frames
+        application.process_camera_frames.return_value = expected
+        manager = SilentRecognitionManager(application)
+        manager.set_enabled(False)
+
+        self.assertTrue(manager._process_lock.acquire(blocking=False))
+        try:
+            self.assertIs(manager.measure("normal"), expected)
+        finally:
+            manager._process_lock.release()
 
 
 if __name__ == "__main__":

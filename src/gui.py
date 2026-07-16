@@ -150,6 +150,7 @@ class MeasurementGui:
         self.status.bind("<MouseWheel>", self._scroll_status)
         self.status.bind("<Button-4>", self._scroll_status)
         self.status.bind("<Button-5>", self._scroll_status)
+        self._bind_readonly_drag_scroll(self.status)
 
         self.notebook = ttk.Notebook(preview)
         self.notebook.pack(expand=True, fill=tk.BOTH)
@@ -180,6 +181,7 @@ class MeasurementGui:
                 target.bind("<MouseWheel>", self._scroll_text)
                 target.bind("<Button-4>", self._scroll_text)
                 target.bind("<Button-5>", self._scroll_text)
+                self._bind_readonly_drag_scroll(target)
                 self.target_text = target
             else:
                 label = ttk.Label(frame, text="等待图像", anchor=tk.CENTER)
@@ -191,7 +193,7 @@ class MeasurementGui:
 
         self._set_status("请选择识别模式，然后开始测量。")
         self._sync_mode()
-        self._update_target_quantity()
+        self._set_target_waiting()
         self.application.start_camera(camera_index, width, height)
         self.silent_recognition.start()
         root.protocol("WM_DELETE_WINDOW", self._close)
@@ -218,41 +220,78 @@ class MeasurementGui:
     def _scroll_status(self, event) -> str:
         return self._scroll_text(event)
 
-    def _update_target_quantity(self) -> None:
+    def _start_text_drag(self, event) -> str:
+        event.widget.scan_mark(event.x, event.y)
+        return "break"
+
+    def _drag_text(self, event) -> str:
+        event.widget.scan_dragto(event.x, event.y, gain=1)
+        return "break"
+
+    def _block_text_selection(self, _event=None) -> str:
+        return "break"
+
+    def _bind_readonly_drag_scroll(self, widget) -> None:
+        widget.bind("<ButtonPress-1>", self._start_text_drag)
+        widget.bind("<B1-Motion>", self._drag_text)
+        widget.bind("<Double-Button-1>", self._block_text_selection)
+        widget.bind("<Triple-Button-1>", self._block_text_selection)
+        widget.bind("<Control-a>", self._block_text_selection)
+        widget.bind("<Control-A>", self._block_text_selection)
+
+    def _set_target_text(self, message: str) -> None:
         import tkinter as tk
 
         if getattr(self, "target_text", None) is None:
             return
+        self.target_text.configure(state=tk.NORMAL)
+        self.target_text.delete("1.0", tk.END)
+        self.target_text.insert("1.0", message)
+        self.target_text.configure(state=tk.DISABLED)
+
+    def _set_target_waiting(self) -> None:
         mode = self.mode.get()
         digit = self.digit.get().strip()
         if mode == "numbered":
             target_digit = digit if digit in "0123456789" and len(digit) == 1 else "0～9"
             lines = [
-                "当前目标量：发挥（3）数字识别",
-                "",
-                f"输入：目标数字 {target_digit}",
-                "输出：与输入数字相同的正方形边长 x，单位 mm。",
-                "",
-                "处理约定：先完成 A4 定位和方块几何检测，再在检测到的正方形内识别数字；只选择数字与输入一致的目标方块。",
-                "",
-                "距离 D：沿用普通测量的距离估计，可在识别状态中查看；题目核心输出量是目标方块尺寸 x。",
+                "目标量：等待测量",
+                f"模式：数字识别，目标数字 {target_digit}",
+                "目标方块尺寸 x：-- mm",
+                "目标距离 D：-- mm",
             ]
         else:
             lines = [
-                "当前目标量：普通识别",
-                "",
-                "基础部分：识别单个圆形、三角形或正方形，输出目标尺寸 x，单位 mm；同时给出目标距离 D。",
-                "",
-                "发挥（1）（2）：识别多个分离或重叠正方形，输出目标正方形尺寸 x，单位 mm；带数字的正方形仍按普通正方形处理。",
-                "",
-                "发挥（4）：A4 绕竖直轴倾斜时，识别正方形并输出边长 x；此场景不要求输出距离 D。",
-                "",
-                "识别状态区会列出当前布局、检测到的全部目标、选中目标尺寸和 A4 定位误差。",
+                "目标量：等待测量",
+                "模式：普通识别",
+                "目标尺寸 x：-- mm",
+                "目标距离 D：-- mm",
             ]
-        self.target_text.configure(state=tk.NORMAL)
-        self.target_text.delete("1.0", tk.END)
-        self.target_text.insert("1.0", "\n".join(lines))
-        self.target_text.configure(state=tk.DISABLED)
+        self._set_target_text("\n".join(lines))
+
+    def _set_target_result(self, result) -> None:
+        distance = (
+            f"{result.distance_mm:.1f} mm"
+            if result.distance_mm is not None
+            else "不要求输出/未测量"
+        )
+        if result.mode == "numbered":
+            lines = [
+                "目标量：识别成功",
+                f"模式：数字识别，目标数字 {self.digit.get().strip()}",
+                f"目标方块尺寸 x：{result.x_mm:.2f} mm",
+                f"目标距离 D：{distance}",
+                f"A4 定位误差：{result.reprojection_error_px:.2f} px",
+            ]
+        else:
+            lines = [
+                "目标量：识别成功",
+                "模式：普通识别",
+                f"目标尺寸 x：{result.x_mm:.2f} mm",
+                f"目标距离 D：{distance}",
+                f"A4 定位误差：{result.reprojection_error_px:.2f} px",
+            ]
+        self._set_target_text("\n".join(lines))
 
     def _sync_mode(self) -> None:
         state = "normal" if self.mode.get() == "numbered" else "disabled"
@@ -262,14 +301,14 @@ class MeasurementGui:
         if state == "normal":
             self.entry.focus_set()
             self.entry.selection_range(0, "end")
-        self._update_target_quantity()
+        self._set_target_waiting()
         self._sync_silent_request()
 
     def _select_digit(self, digit: int) -> None:
         self.digit.set(str(digit))
         self.entry.focus_set()
         self.entry.selection_range(0, "end")
-        self._update_target_quantity()
+        self._set_target_waiting()
         self._sync_silent_request()
 
     def _sync_silent_request(self) -> None:
@@ -277,7 +316,6 @@ class MeasurementGui:
             return
         mode = self.mode.get()
         value = self.digit.get().strip()
-        self._update_target_quantity()
         if mode == "numbered" and (len(value) != 1 or value not in "0123456789"):
             return
         self.silent_recognition.set_request(
@@ -329,6 +367,7 @@ class MeasurementGui:
         self.camera_button.configure(state="disabled")
         self.file_button.configure(state="disabled")
         self._clear_views()
+        self._set_target_waiting()
         self._set_status("正在读取相机缓存……" if camera_input else "正在获取输入图像……")
 
         def worker() -> None:
@@ -386,9 +425,11 @@ class MeasurementGui:
         self._idle()
         if message == "找不到camera":
             self._set_status("找不到camera")
+            self._set_target_text("目标量：测量失败\n原因：找不到camera")
             messagebox.showerror("相机错误", "找不到camera")
             return
         self._set_status(f"识别失败\n原因：{message}")
+        self._set_target_text(f"目标量：测量失败\n原因：{message}")
         messagebox.showerror("识别失败", message)
 
     def _success(self, result) -> None:
@@ -403,6 +444,7 @@ class MeasurementGui:
         self._show_image(VIEW_RESULT, result.annotated_a4)
         self.notebook.select(self.tab_frames[VIEW_RESULT])
         self._set_status(result.summary)
+        self._set_target_result(result)
 
     def _on_tab_changed(self, _event=None) -> None:
         selected = self.notebook.select()
