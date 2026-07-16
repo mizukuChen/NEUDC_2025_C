@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""树莓派正式测量界面。"""
+
 import argparse
 import threading
 from pathlib import Path

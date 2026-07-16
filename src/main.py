@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.gui import main
+from src.ui.measurement_gui import main
 
 
 if __name__ == "__main__":
