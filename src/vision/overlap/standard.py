@@ -9,6 +9,9 @@ from math import atan2, cos, degrees, hypot, pi, sin
 import cv2
 import numpy as np
 
+from .geometry import edge_support, outer_band_mean, polygon_iou, square_angle_error
+from .models import OverlapMeasurementResult, ReconstructedSquare
+
 # A4 纸的标准物理尺寸（毫米）
 A4_WIDTH_MM = 210.0
 A4_HEIGHT_MM = 297.0
@@ -19,38 +22,6 @@ INSET_MM = 25.0
 # 允许识别的正方形物理边长范围限制（单位：mm），过滤异常组合
 MIN_SIDE_MM = 50.0
 MAX_SIDE_MM = 125.0
-
-
-@dataclass(frozen=True)
-class ReconstructedSquare:
-    """
-    重建出的重叠正方形测量结果。
-
-    属性:
-        corners: 4x2 的 NumPy 数组，保存该正方形的 4 个角点像素坐标。
-        center_mm: 在 A4 坐标系下的几何中心物理坐标 (x, y)，单位：mm。
-        side_mm: 重建出的正方形物理边长（单位：mm）。
-        angle_deg: 正方形的旋转偏角（单位：度，范围 -45 ~ 45）。
-        confidence: 重建置信度得分 (0.0 ~ 1.0)。
-    """
-    corners: np.ndarray
-    center_mm: tuple[float, float]
-    side_mm: float
-    angle_deg: float
-    confidence: float
-
-
-@dataclass(frozen=True)
-class OverlapMeasurementResult:
-    """
-    重叠正方形检测的最终结果。
-
-    属性:
-        squares: 包含所有重建出的正方形结果的元组。
-        edge_image: Canny 边缘检测图，用于可视化调试。
-    """
-    squares: tuple[ReconstructedSquare, ...]
-    edge_image: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -139,67 +110,6 @@ def _intersection(first: _Line, second: _Line) -> np.ndarray | None:
     return np.linalg.solve(matrix, np.array([first.rho, second.rho], dtype=np.float64))
 
 
-def _edge_support(distance: np.ndarray, start: np.ndarray, end: np.ndarray, tolerance_px: float) -> float:
-    """
-    计算正方形某条边在线条距离变换图中的边缘支持率。
-
-    原理:
-        - 在边 start -> end 上均匀采样多个像素点。
-        - 检查这些采样点在距离变换图（Distance Transform）中的值是否小于设定的容差（在边缘附近）。
-        - 支持率 = 落在真实图像边缘附近的点比例。支持率越高，说明图里这条边越真实存在。
-    """
-    length = hypot(*(end - start))
-    sample_count = max(20, round(length / 2.0))
-    points = np.linspace(start, end, sample_count)
-    xs = np.clip(np.rint(points[:, 0]).astype(int), 0, distance.shape[1] - 1)
-    ys = np.clip(np.rint(points[:, 1]).astype(int), 0, distance.shape[0] - 1)
-    return float(np.mean(distance[ys, xs] <= tolerance_px))
-
-
-def _interior_support(foreground: np.ndarray, polygon: np.ndarray) -> float:
-    """
-    验证重建的多边形区域内部是否为“纯黑实心”的。
-
-    原理:
-        - 创建一个多边形局部的掩膜画布。
-        - 用 `fillConvexPoly` 填充多边形区域。
-        - 统计在前景色二值图中，该多边形覆盖范围内的黑色（前景）像素占比。
-        - 占比接近 1.0 说明该多边形内全是实心黑色，符合靶纸黑色实心正方形的特性。
-    """
-    integer = np.rint(polygon).astype(np.int32)
-    x, y, width, height = cv2.boundingRect(integer)
-    x0 = max(0, x)
-    y0 = max(0, y)
-    x1 = min(foreground.shape[1], x + width)
-    y1 = min(foreground.shape[0], y + height)
-    if x1 <= x0 or y1 <= y0:
-        return 0.0
-    region = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
-    shifted = integer - np.array([x0, y0], dtype=np.int32)
-    cv2.fillConvexPoly(region, shifted, 255)
-    # 数字位于方块中央，会在黑色内部形成白色孔洞。只验证外圈黑色带，
-    # 忽略中央 68% 区域，避免数字降低实心支持率。
-    center = shifted.astype(np.float32).mean(axis=0)
-    inner = center + (shifted.astype(np.float32) - center) * 0.68
-    cv2.fillConvexPoly(region, np.rint(inner).astype(np.int32), 0)
-    pixels = region > 0
-    if not np.any(pixels):
-        return 0.0
-    return float(np.mean(foreground[y0:y1, x0:x1][pixels]))
-
-
-def _polygon_iou(first: np.ndarray, second: np.ndarray) -> float:
-    """
-    计算两个凸多边形之间的交并比（IoU），用于非极大值抑制（Deduplication）。
-    """
-    area_first = abs(cv2.contourArea(first.astype(np.float32)))
-    area_second = abs(cv2.contourArea(second.astype(np.float32)))
-    # 使用 OpenCV 内置的凸多边形相交面积计算函数
-    intersection, _ = cv2.intersectConvexConvex(first.astype(np.float32), second.astype(np.float32))
-    union = area_first + area_second - intersection
-    return float(intersection / union) if union > 0 else 0.0
-
-
 def _parallel_pair_lines(first: _Line, second: _Line) -> tuple[_Line, _Line]:
     """
     将两条方向极其接近的直线，强行修正为方向完全一致、法向量平行的理想平行线对。
@@ -250,13 +160,13 @@ def _same_square(first: ReconstructedSquare, second: ReconstructedSquare) -> boo
         first.center_mm[0] - second.center_mm[0],
         first.center_mm[1] - second.center_mm[1],
     )
-    angle_error = abs((first.angle_deg - second.angle_deg + 45.0) % 90.0 - 45.0)
+    angle_error = square_angle_error(first.angle_deg, second.angle_deg)
     # 若中心物理距离小于 3mm 且边长差小于 3mm 且偏角小于 1.5 度，或者 IoU 大于 0.82，则认为是同一正方形
     return (
         center_distance <= 3.0
         and abs(first.side_mm - second.side_mm) <= 3.0
         and angle_error <= 1.5
-    ) or _polygon_iou(first.corners, second.corners) >= 0.82
+    ) or polygon_iou(first.corners, second.corners) >= 0.82
 
 
 def _deduplicate_squares(candidates: list[ReconstructedSquare]) -> list[ReconstructedSquare]:
@@ -363,13 +273,13 @@ def reconstruct_overlapping_squares(rectified_a4: np.ndarray) -> OverlapMeasurem
 
         # 校验 4 条边的边缘吻合率
         supports = [
-            _edge_support(distance, polygon[index], polygon[(index + 1) % 4], 0.8 * scale)
+            edge_support(distance, polygon[index], polygon[(index + 1) % 4], 0.8 * scale)
             for index in range(4)
         ]
         mean_support = float(np.mean(supports))
         min_support = float(np.min(supports))
         # 校验多边形内部黑色填充率
-        interior = _interior_support(foreground, polygon)
+        interior = outer_band_mean(foreground, polygon)
 
         # 阈值卡扣：单边支持度不小于 40%，平均支持度不小于 55%，实心黑色度不小于 94%
         if min_support < 0.40 or mean_support < 0.55 or interior < 0.94:

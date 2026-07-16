@@ -15,30 +15,13 @@ from src.vision.lowres_preprocess import (
     prepare_low_resolution_a4,
 )
 
+from .geometry import edge_support, outer_band_mean, polygon_iou, square_angle_error
+from .models import LowResolutionOverlapResult, LowResolutionSquare
+
 
 MIN_SIDE_MM = 50.0
 MAX_SIDE_MM = 125.0
 CONTENT_INSET_MM = 20.0
-
-
-@dataclass(frozen=True)
-class LowResolutionSquare:
-    corners: np.ndarray
-    center_mm: tuple[float, float]
-    side_mm: float
-    angle_deg: float
-    confidence: float
-    edge_supports: tuple[float, float, float, float]
-    source_hits: int = 1
-
-
-@dataclass(frozen=True)
-class LowResolutionOverlapResult:
-    squares: tuple[LowResolutionSquare, ...]
-    prepared: LowResolutionA4
-    edge_image: np.ndarray
-    line_count: int
-    candidate_count: int
 
 
 @dataclass(frozen=True)
@@ -239,54 +222,17 @@ def _square_from_pairs(first_pair, second_pair) -> np.ndarray | None:
     return np.asarray(corners, dtype=np.float32)
 
 
-def _edge_support(distance: np.ndarray, start: np.ndarray, end: np.ndarray, tolerance: float) -> float:
-    length = float(np.linalg.norm(end - start))
-    count = max(20, round(length / 2.0))
-    points = np.linspace(start, end, count)
-    xs = np.clip(np.rint(points[:, 0]).astype(int), 0, distance.shape[1] - 1)
-    ys = np.clip(np.rint(points[:, 1]).astype(int), 0, distance.shape[0] - 1)
-    return float(np.mean(distance[ys, xs] <= tolerance))
-
-
-def _outer_band_probability(probability: np.ndarray, polygon: np.ndarray) -> float:
-    integer = np.rint(polygon).astype(np.int32)
-    x, y, width, height = cv2.boundingRect(integer)
-    x0, y0 = max(0, x), max(0, y)
-    x1 = min(probability.shape[1], x + width)
-    y1 = min(probability.shape[0], y + height)
-    if x1 <= x0 or y1 <= y0:
-        return 0.0
-    mask = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
-    shifted = integer - np.array([x0, y0], dtype=np.int32)
-    cv2.fillConvexPoly(mask, shifted, 255)
-    center = shifted.astype(np.float32).mean(axis=0)
-    inner = center + (shifted.astype(np.float32) - center) * 0.68
-    cv2.fillConvexPoly(mask, np.rint(inner).astype(np.int32), 0)
-    active = mask > 0
-    if not np.any(active):
-        return 0.0
-    return float(np.mean(probability[y0:y1, x0:x1][active]))
-
-
-def _polygon_iou(first: np.ndarray, second: np.ndarray) -> float:
-    area_first = abs(cv2.contourArea(first.astype(np.float32)))
-    area_second = abs(cv2.contourArea(second.astype(np.float32)))
-    intersection, _ = cv2.intersectConvexConvex(first.astype(np.float32), second.astype(np.float32))
-    union = area_first + area_second - intersection
-    return float(intersection / union) if union > 0 else 0.0
-
-
 def _same_square(first: LowResolutionSquare, second: LowResolutionSquare) -> bool:
     center_distance = hypot(
         first.center_mm[0] - second.center_mm[0],
         first.center_mm[1] - second.center_mm[1],
     )
-    angle_error = abs((first.angle_deg - second.angle_deg + 45.0) % 90.0 - 45.0)
+    angle_error = square_angle_error(first.angle_deg, second.angle_deg)
     return (
         center_distance <= 5.0
         and abs(first.side_mm - second.side_mm) <= 5.0
         and angle_error <= 5.0
-    ) or _polygon_iou(first.corners, second.corners) >= 0.78
+    ) or polygon_iou(first.corners, second.corners) >= 0.78
 
 
 def _deduplicate(candidates: list[LowResolutionSquare]) -> list[LowResolutionSquare]:
@@ -317,13 +263,13 @@ def _candidate_from_geometry(
         return None
     distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
     supports = tuple(
-        _edge_support(distance, polygon[index], polygon[(index + 1) % 4], 1.75 * scale)
+        edge_support(distance, polygon[index], polygon[(index + 1) % 4], 1.75 * scale)
         for index in range(4)
     )
     mean_support = float(np.mean(supports))
     min_support = float(np.min(supports))
     probability_roi = prepared.black_probability[inset:-inset, inset:-inset]
-    interior = _outer_band_probability(probability_roi, polygon)
+    interior = outer_band_mean(probability_roi, polygon)
     if min_support < 0.08 or mean_support < 0.24 or interior < 0.45:
         return None
 
@@ -430,7 +376,7 @@ def _verify_on_fused(
     supports = verified.edge_supports
     ordered_supports = sorted(supports, reverse=True)
     probability_roi = prepared.black_probability[inset:-inset, inset:-inset]
-    inner_boundary_probability = _outer_band_probability(probability_roi, polygon)
+    inner_boundary_probability = outer_band_mean(probability_roi, polygon)
     if not MIN_SIDE_MM <= verified.side_mm <= MAX_SIDE_MM:
         return None
     if (
