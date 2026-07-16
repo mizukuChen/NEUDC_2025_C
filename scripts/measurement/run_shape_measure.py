@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 
 # 将项目根目录添加到系统搜索路径中，确保能成功导入 src 中的模块
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.train_digit_svm import build_dataset
+from scripts.training.train_digit_svm import build_dataset
 from src.vision.linear_svm import LinearSvmModel, save_linear_svm
 
 

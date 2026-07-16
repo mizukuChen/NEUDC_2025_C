@@ -193,7 +193,7 @@ python capture.py --name sample.jpg
 ### 单图形状测量
 
 ```bash
-python scripts/run_shape_measure.py <透视校正后的A4图像>
+python scripts/measurement/run_shape_measure.py <透视校正后的A4图像>
 ```
 
 该入口检测圆形、三角形和完整轮廓正方形，输入应当是已经完成 A4 透视校正的图像。旧版完整处理入口已归档到 `archive/scripts/basic_measure/`。
@@ -207,8 +207,8 @@ runtime/debug/shape_measurement.jpg
 ### 批量评估
 
 ```bash
-python scripts/evaluate_shape_measure.py
-python scripts/evaluate_controlled_overlap.py
+python scripts/evaluation/evaluate_shape_measure.py
+python scripts/evaluation/evaluate_controlled_overlap.py
 ```
 
 前者评估基础和分离图形，后者使用 JSON ground truth 评估受控重叠正方形。脚本的完整用途见 `scripts/README.md`。

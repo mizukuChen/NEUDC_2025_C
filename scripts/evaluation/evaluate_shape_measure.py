@@ -16,7 +16,7 @@ from pathlib import Path
 
 import cv2
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -29,7 +29,11 @@ def parse_args() -> argparse.Namespace:
         "inputs",
         nargs="*",
         type=Path,
-        default=[ROOT / "assets" / "targets" / "generated" / "png", ROOT / "assets" / "targets" / "generated" / "advanced" / "png"],
+        default=[
+            ROOT / "assets" / "targets" / "generated" / "modular" / "basic",
+            ROOT / "assets" / "targets" / "generated" / "modular" / "single_square",
+            ROOT / "assets" / "targets" / "generated" / "modular" / "separate",
+        ],
         help="输入图像或包含测试图像的目录列表。",
     )
     return parser.parse_args()
