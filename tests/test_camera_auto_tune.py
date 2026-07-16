@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from src.camera_auto_tune import auto_tune_candidates
-from src.camera_settings import CameraSettings
+from src.hardware.camera_settings import CameraSettings
 
 
 class CameraAutoTuneTest(unittest.TestCase):

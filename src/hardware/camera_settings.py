@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""树莓派摄像头配置、V4L2控制与跨进程设备锁。"""
+
 from dataclasses import asdict, dataclass
 import fcntl
 import json

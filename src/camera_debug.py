@@ -17,7 +17,7 @@ from src.camera_auto_tune import (
     auto_tune_candidates,
     evaluate_camera_health,
 )
-from src.camera_settings import (
+from src.hardware.camera_settings import (
     DEFAULT_CAMERA_SETTINGS_PATH,
     CameraDeviceLock,
     CameraSettings,

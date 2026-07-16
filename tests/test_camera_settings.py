@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from src.camera_settings import (
+from src.hardware.camera_settings import (
     CameraDeviceLock,
     CameraSettings,
     apply_camera_controls,
@@ -70,7 +70,7 @@ class CameraSettingsTest(unittest.TestCase):
                 ),
                 stderr="",
             )
-            with patch("src.camera_settings.subprocess.run", return_value=completed) as run:
+            with patch("src.hardware.camera_settings.subprocess.run", return_value=completed) as run:
                 apply_camera_controls(capture, settings, device.name)
                 actual = read_camera_controls(device.name)
         self.assertEqual(

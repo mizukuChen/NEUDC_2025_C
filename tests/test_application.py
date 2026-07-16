@@ -13,7 +13,7 @@ from src.application import (
     _draw_a4_location,
     _normal_summary,
 )
-from src.camera_settings import CameraSettings
+from src.hardware.camera_settings import CameraSettings
 from src.vision.measure import Measurement, MeasurementResult
 from src.vision.measurement_tasks import NormalMeasurementResult
 from src.vision.fisheye import FisheyeCalibration

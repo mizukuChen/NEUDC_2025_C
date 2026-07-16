@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from src.application import MeasurementApplication
-from src.camera_settings import CameraSettings
+from src.hardware.camera_settings import CameraSettings
 from src.vision.lowres_preprocess import estimate_black_probability
 from src.vision.overlap.lowres import reconstruct_low_resolution_squares
 from src.vision.rectify import rectify_a4

@@ -34,7 +34,7 @@ from src.vision.measurement_tasks import (
 )
 from src.vision.rectify import rectify_a4
 from src.vision.target_plane import find_target_plane
-from src.camera_settings import (
+from src.hardware.camera_settings import (
     DEFAULT_CAMERA_SETTINGS_PATH,
     CameraDeviceLock,
     CameraSettings,
