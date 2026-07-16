@@ -141,15 +141,7 @@ class DiagnosticProcessor:
         left, top, right, bottom = settings.roi_pixels(width, height)
         # ROI是在去畸变坐标系中裁剪的，因此调试预览也必须使用同一图像，
         # 否则鱼眼原图上的直线框并不对应算法真正搜索的区域。
-        full = undistorted.copy()
-        cv2.rectangle(
-            full,
-            (left, top),
-            (right - 1, bottom - 1),
-            (255, 180, 0),
-            3,
-            cv2.LINE_AA,
-        )
+        full = self.preview_full(raw, settings, frame_id)
         roi = undistorted[top:bottom, left:right]
         try:
             plane = find_target_plane(roi)
@@ -200,6 +192,27 @@ class DiagnosticProcessor:
                 f"过曝 {preview.bright_ratio:.2f}%"
             )
         return CameraDiagnostics(full, located, rectified, probability_bgr, message)
+
+    def preview_full(
+        self,
+        raw: np.ndarray,
+        settings: CameraSettings,
+        frame_id: int | None = None,
+    ) -> np.ndarray:
+        preview = self._preprocess(raw, frame_id)
+        undistorted = preview.undistorted
+        height, width = raw.shape[:2]
+        left, top, right, bottom = settings.roi_pixels(width, height)
+        full = undistorted.copy()
+        cv2.rectangle(
+            full,
+            (left, top),
+            (right - 1, bottom - 1),
+            (255, 180, 0),
+            3,
+            cv2.LINE_AA,
+        )
+        return full
 
 
 class DebugCameraWorker:
@@ -557,16 +570,14 @@ class CameraDebugGui:
     def _schedule_roi_refresh(self) -> None:
         if self._suspend_auto_apply:
             return
-        self._force_render = True
         if self._pending_roi_job is not None:
             self.root.after_cancel(self._pending_roi_job)
-        self.status.set("ROI已修改，正在用当前画面重新诊断……")
+        self.status.set("ROI已修改，正在实时刷新蓝色预览框……")
         self._pending_roi_job = self.root.after(15, self._refresh_current_frame)
 
     def _refresh_current_frame(self) -> None:
         self._pending_roi_job = None
-        self._force_render = True
-        self._update_preview()
+        self._update_roi_preview_only()
 
     def _apply(self) -> bool:
         from tkinter import messagebox
@@ -747,6 +758,46 @@ class CameraDebugGui:
                 self._render_selected()
             except Exception as exc:
                 self.status.set(f"诊断失败：{exc}")
+
+    def _update_roi_preview_only(self) -> None:
+        frame, error, frame_id = self.worker.latest()
+        if error:
+            self.status.set(error)
+            return
+        if frame is None:
+            return
+        try:
+            started = time.perf_counter()
+            full = self.processor.preview_full(
+                frame,
+                self._settings_from_ui(),
+                frame_id=frame_id,
+            )
+            if self._diagnostics is None:
+                placeholder = np.full((594, 420, 3), 235, dtype=np.uint8)
+                self._diagnostics = CameraDiagnostics(
+                    full=full,
+                    located=full.copy(),
+                    rectified=placeholder,
+                    probability=placeholder.copy(),
+                    message="等待完整诊断",
+                )
+            else:
+                self._diagnostics = CameraDiagnostics(
+                    full=full,
+                    located=self._diagnostics.located,
+                    rectified=self._diagnostics.rectified,
+                    probability=self._diagnostics.probability,
+                    message=self._diagnostics.message,
+                )
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            self.status.set(
+                f"ROI蓝色预览框已更新｜{elapsed_ms:.0f}ms｜A4定位等下一帧更新"
+            )
+            if self.notebook.tab(self.notebook.select(), "text") == VIEW_FULL:
+                self._render_selected()
+        except Exception as exc:
+            self.status.set(f"ROI预览失败：{exc}")
 
     def _tick(self) -> None:
         self._update_preview()
