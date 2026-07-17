@@ -1,0 +1,3 @@
+[submodule "K230"]
+	path = K230
+	url = git@github.com:mizukuChen/NEUDC_2025_C_K230.git
